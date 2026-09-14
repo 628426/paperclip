@@ -117,6 +117,18 @@ subscription receives a retryable busy response while it is in use. Refreshes
 are merged only into the originating active grant, with reconnect/revocation
 version checks. Temporary homes are removed on normal completion or failure.
 
+For a fresh task execution, subscription contention creates a durable scheduled
+retry checked every 60–120 seconds. The task shows “Waiting for AI subscription”
+and does not request a reconnect or consume its provider-failure retry allowance.
+Each attempt rechecks task eligibility, ownership, budget, and current credential
+access. Revocation and other configuration failures still require user action.
+Authorized comment wakes that started as non-assignee runs can resume without
+claiming the assignee’s execution lock. Admission records this authority while
+holding the task and run locks. A reassignment during preflight cannot grant it.
+Assignee retries must still own that lock.
+Already-started native sessions retain their existing same-run recovery path;
+they must not be replaced by a fresh execution with a pre-provider receipt.
+
 Session reuse includes grant identity, responsible user, and credential
 generation. A changed identity starts a fresh provider session. Managed native
 executions use per-turn lifecycle cleanup; a suspended native execution whose
@@ -275,7 +287,7 @@ Concurrent runs using the same subscription wait through scheduled retries while
 the credential lease is held. They do not request new credentials or consume the
 provider-failure retry allowance. Each retry revalidates the account and existing
 run-dispatch rules still suppress cancelled, reassigned, or otherwise ineligible work.
-Task retries must retain execution-lock ownership at scheduling, promotion, and dispatch.
+Assignee retries must retain execution-lock ownership at scheduling, promotion, and dispatch.
 
 `server/src/__tests__/agent-hire-ai-connections.test.ts` covers both creation routes,
 both providers and methods, approval gates, native provider mapping, shared access
