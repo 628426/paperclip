@@ -1281,6 +1281,21 @@ describe("TaskChatThread runtime transcript selection", () => {
     },
   );
 
+  it("shows an actionable approval-required reason for a stopped native run", () => {
+    render(<TaskChatThread comments={[]} onAdd={async () => {}} linkedRuns={[{
+      runId: "approval-required", runtimeMode: "native", status: "failed",
+      errorCode: "native_provider_approval_required",
+      agentId: "agent-1", agentName: "Runner", adapterType: "paperclip_runner",
+      startedAt: "2026-09-14T15:00:00.000Z", createdAt: "2026-09-14T15:00:00.000Z",
+      finishedAt: "2026-09-14T15:00:02.000Z",
+    }]} />);
+    const marker = container.querySelector('[data-testid="task-chat-collapsible-marker"]');
+    expect(marker?.textContent).toContain("Approval required");
+    flushSync(() => marker!.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click());
+    expect(container.textContent).toContain("Review the operation and update the agent's permission setting before retrying");
+    expect(container.textContent).not.toContain("The runner stopped");
+  });
+
   it("keeps workspace contention out of the conversation's cancellation markers", () => {
     render(<TaskChatThread comments={[]} onAdd={async () => {}} linkedRuns={[{
       runId: "workspace-wait", runtimeMode: "native", status: "cancelled", errorCode: "workspace_busy",
