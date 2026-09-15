@@ -411,6 +411,26 @@ Workspace incoherence feeds into the same non-terminal liveness and stranded ass
 
 For runtime-created `git_worktree` execution workspaces, branch coherence is part of workspace coherence. The persisted execution workspace branch is the recorded branch for future dispatch. Reusing that workspace must verify that the worktree is still registered and that `HEAD` is on the recorded branch. Successful run finalization must perform the same check before recording `workspace_finalize=succeeded`. If the run switched to a publishing/PR branch without updating the execution workspace record, finalization may auto-restore the recorded branch only when the worktree is clean, still registered, and the recorded branch points at the current `HEAD`; the repair is recorded as a workspace operation before the successful finalize row. If that safe repair cannot be proven, finalization records a failed workspace finalize and the run fails with bounded evidence for the expected and actual branch. A branch change is sanctioned when a control-plane path updates the execution workspace record before finalization, when publishing work happens in a separate worktree and the managed issue worktree remains on its recorded branch, or when the finalizer performs this clean same-commit restoration.
 
+### Workspace scan failures before provider startup
+
+Repository discovery distinguishes an ordinary folder from a failed Git read.
+A timeout, full scan queue, cancellation, output limit, or Git failure must keep
+its typed cause through workspace preparation and run persistence. It must not
+be reported as a missing repository or fall back to an unfiltered directory copy.
+
+When workspace preparation fails before provider work starts, scan timeouts and
+queue saturation use the existing durable failure budget: two automatic retries,
+30 seconds apart. The scheduled successor is persisted before execution is
+released. Restart and duplicate wake handling reuse that successor. Normal task,
+ownership, pause, dependency, approval, and budget gates still apply. Existing
+workspace content is retained, and incomplete temporary clones are not published.
+
+Cancelled scans, output-limit failures, and other Git failures do not authorize
+an automatic setup retry. Exhaustion or an unsafe retry opens the source-scoped
+recovery path with the specific scan cause and an operator action. Generic
+stranded-work recovery must not grant another budget for these errors. This
+does not automatically replay historical generic `setup_failed` runs.
+
 ### ACP startup handshake bound
 
 An adapter-backed live path also requires that the ACP startup handshake itself cannot hang forever. The engine bounds the handshake with a fixed startup deadline and a poll of the duplex control-channel disposition. Either condition ends the handshake and reports a closed, typed code, so the issue can reach a settled disposition instead of staying `in_progress` with no observable next action.

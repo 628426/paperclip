@@ -1688,6 +1688,8 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                 : "Execution was stopped before returning an answer."
               : code === "provider_frame_too_large"
               ? `Provider output exceeded the safe limit. ${retryDetail}`
+              : code.startsWith("workspace_git_scan_")
+              ? `Workspace setup failed before the agent started. ${retryDetail}`
               : `The runner stopped before returning an answer (${code}). ${retryDetail}`;
           const id = `${source.id}:failure`;
           entriesWithFailures.push({
@@ -2890,7 +2892,9 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                                             ? liveRun.currentStatusMessage
                                             : null) ||
                                           (tailStatus === "failed"
-                                            ? "This run stopped before a response was available. Review the task’s connection or recovery action below."
+                                            ? linkedRunMetaById.get(tailRunId ?? "")?.errorCode?.startsWith("workspace_git_scan_")
+                                              ? "Workspace setup failed before the agent started."
+                                              : "This run stopped before a response was available. Review the task’s connection or recovery action below."
                                             : "Waiting for transcript...")
                                     }
                                   />
