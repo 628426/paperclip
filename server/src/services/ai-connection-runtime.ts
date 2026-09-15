@@ -243,10 +243,15 @@ export async function prepareManagedAiRuntime(
     runnerProvider: input.config.provider,
     acpxAgent: input.config.acpxAgent,
   });
-  const release =
-    selection.attribution.method === "subscription"
-      ? await acquireCredentialLease(db, selection.grant.id)
-      : async () => {};
+  const subscriptionFile =
+    selection.attribution.method === "subscription" &&
+    input.binding.provider !== "anthropic";
+  // A file-backed subscription runs one credential rotation at a time, so it
+  // needs the lease. Anthropic writes no file back, so two runs share no
+  // mutable state and can run at the same time without the lease.
+  const release = subscriptionFile
+    ? await acquireCredentialLease(db, selection.grant.id)
+    : async () => {};
   let home: string | undefined;
   try {
     const selectedGrantId = selection.grant.id;
@@ -291,9 +296,6 @@ export async function prepareManagedAiRuntime(
         'cli_auth_credentials_store = "file"\n',
         { mode: 0o600 },
       );
-    const subscriptionFile =
-      selection.attribution.method === "subscription" &&
-      input.binding.provider !== "anthropic";
     if (subscriptionFile) await writeFile(authFile, value, { mode: 0o600 });
     else env[capability.envKey] = value;
     if (

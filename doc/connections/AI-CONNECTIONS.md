@@ -108,17 +108,22 @@ grant's credentials. Inherited credential variables are cleared. Conflicting
 project authentication and provider-routing overrides are rejected. Managed
 failure cannot reactivate host or legacy credentials.
 
-Subscription invocations take a grant-scoped transaction advisory lease. The
-reserved database client keeps one transaction open until cleanup, including on
+A subscription invocation takes a grant-scoped transaction advisory lease only
+when it writes a provider authentication file back to the grant. OpenAI and xAI
+subscriptions do this, because their refresh tokens are single use. An
+Anthropic subscription invocation writes no file back, so it takes no lease;
+two Anthropic invocations of one grant run at the same time. The reserved
+database client keeps one transaction open until cleanup, including on
 transaction-pooling proxies such as PgBouncer. Session-level advisory locks must
 not be used here: a pooled connection can return to a different backend for
 cleanup and leave the original lock behind. The lease transaction disables its
 idle timeout and contains no application data writes; cleanup rolls it back.
 Two
 different users' grants can run concurrently; a second invocation of the same
-subscription receives a retryable busy response while it is in use. Refreshes
-are merged only into the originating active grant, with reconnect/revocation
-version checks. Temporary homes are removed on normal completion or failure.
+file-backed subscription receives a retryable busy response while it is in
+use. Refreshes are merged only into the originating active grant, with
+reconnect/revocation version checks. Temporary homes are removed on normal
+completion or failure.
 
 For a fresh task execution, subscription contention creates a durable scheduled
 retry checked every 60–120 seconds. The task shows “Waiting for AI subscription”
