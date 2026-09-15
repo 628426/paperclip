@@ -93,6 +93,9 @@ subsequent agent creation fails or is cancelled.
 ## Runtime isolation
 
 `prepareManagedAiRuntime` is shared by runs, environment tests, and adoption.
+Claude ACP validates working directories on the selected execution target. A
+sandbox directory does not need to exist on the Paperclip server. When the agent
+has no configured directory, the test uses the remote target's working directory.
 It checks responsible identity, membership, compatibility, connection health,
 human audience and agent installation before reading credentials.
 Missing credentials produce an actionable configuration failure; responsible-user
