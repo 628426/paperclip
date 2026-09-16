@@ -40,6 +40,7 @@ import {
 } from "../vendor/paperclip-runner/testing.js";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { drainHeartbeatRunsToQuiescence } from "./helpers/drain-heartbeat-runs.js";
+import { waitForPendingRunFailureReports } from "../services/run-failure-report.js";
 import {
   claimNativeSessionResumptions,
   dispatchNativeSessionResumptions,
@@ -563,11 +564,10 @@ describe("P6-25 pre-result native session recovery", () => {
     const captureCallsBefore = mockCaptureRunFailure.mock.calls.length;
 
     await claimNativeSessionResumptions({ db, runnerInstanceId: "reaper", runIds: [freshRunId] });
-    // Reporting is deliberately fire-and-forget. An unrelated database query
-    // cannot synchronize it; wait for the actual event before checking payload.
-    await vi.waitFor(() => {
-      expect(mockCaptureRunFailure.mock.calls.slice(captureCallsBefore)).toHaveLength(1);
-    }, { timeout: 5_000 });
+    // The reconciler reports asynchronously; an unrelated database round trip
+    // does not guarantee that callback has completed.
+    await waitForPendingRunFailureReports();
+    expect(mockCaptureRunFailure.mock.calls.slice(captureCallsBefore)).toHaveLength(1);
     const newCaptures = mockCaptureRunFailure.mock.calls.slice(captureCallsBefore);
     expect(newCaptures[0]?.[0]).toMatchObject({ runId: freshRunId, runStatus: "failed" });
   });
@@ -600,7 +600,7 @@ describe("P6-25 pre-result native session recovery", () => {
     const captureCallsBefore = mockCaptureRunFailure.mock.calls.length;
 
     await claimNativeSessionResumptions({ db, runnerInstanceId: "reaper", runIds: [freshRunId] });
-    await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, freshRunId));
+    await waitForPendingRunFailureReports();
 
     expect(mockCaptureRunFailure.mock.calls.slice(captureCallsBefore)).toHaveLength(0);
   });

@@ -269,7 +269,7 @@ describe("PaperclipRunnerToolAuthority", () => {
     },
   );
 
-  it("executes the advertised payload.questions shape once on the bound reviewed task", async () => {
+  it.each(["choice", "text"] as const)("executes the advertised %s question once on the bound reviewed task", async (answerMode) => {
     const binding = {
       companyId: randomUUID(),
       agentId: randomUUID(),
@@ -279,7 +279,7 @@ describe("PaperclipRunnerToolAuthority", () => {
     await db.insert(companies).values({
       id: binding.companyId,
       name: "Question invocation",
-      issuePrefix: "RQA",
+      issuePrefix: answerMode === "choice" ? "RQA" : "RQT",
     });
     await db.insert(agents).values({
       id: binding.agentId,
@@ -329,6 +329,33 @@ describe("PaperclipRunnerToolAuthority", () => {
         ],
       },
     ];
+    const payloadDescription = (advertised.inputSchema as {
+      properties: { payload: { description: string } };
+    }).properties.payload.description;
+    expect(payloadDescription).toContain("at least two distinct meaningful options");
+    expect(payloadDescription).toContain("questionSet");
+    expect(payloadDescription).not.toContain("use exactly");
+    const payload = answerMode === "choice"
+      ? { version: 1, questions }
+      : {
+          version: 1,
+          questions: [{
+            id: "goal",
+            prompt: "What should we accomplish?",
+            selectionMode: "single",
+            required: true,
+            options: [{ id: "describe", label: "Your answer", freeText: true }],
+          }],
+          questionSet: {
+            schema: "paperclip.question_set.v1",
+            questions: [{
+              id: "goal",
+              prompt: "What should we accomplish?",
+              answerMode: "text",
+              required: true,
+            }],
+          },
+        };
     const call = {
       tool: "request_human_input",
       callId: "advertised-question",
@@ -338,7 +365,7 @@ describe("PaperclipRunnerToolAuthority", () => {
         title: "Choose one color",
         prompt: "Choose one color",
         continuationPolicy: "wake_assignee",
-        payload: { version: 1, questions },
+        payload,
       },
     };
     const first = await authority.execute(call);
@@ -351,7 +378,7 @@ describe("PaperclipRunnerToolAuthority", () => {
         kind: "ask_user_questions",
         status: "pending",
         continuationPolicy: "wake_assignee",
-        payload: { version: 1, questions },
+        payload,
       },
     });
     await expect(
