@@ -7,6 +7,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   createAiConnectionSchema,
+  HEARTBEAT_RUN_STATUSES,
   aiConnectionLoginIntentSchema,
   localAiConnectionSchema,
   localAiLoginStartSchema,
@@ -6783,6 +6784,7 @@ registry.registerPath({
       agentId: z.string().optional(),
       limit: z.coerce.number().int().min(1).max(1000).default(200),
       offset: z.coerce.number().int().nonnegative().default(0),
+      status: z.enum(HEARTBEAT_RUN_STATUSES).optional(),
       summary: z.enum(["true", "false", "1", "0"]).optional(),
     }),
   },
