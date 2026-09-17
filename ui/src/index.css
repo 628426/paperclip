@@ -3217,3 +3217,10 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   .skill-import-enter, .skill-import-sweep { animation: none; }
   .skill-import-progress::-webkit-progress-value { transition: none; }
 }
+
+/* Large inboxes can contain hundreds of rich rows. Keep off-screen rows out of
+   layout and paint while preserving their measured size after first render. */
+.inbox-render-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--spacing) * 18);
+}
