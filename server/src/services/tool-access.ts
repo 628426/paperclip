@@ -1188,14 +1188,23 @@ export function projectedConnectionHeaders(
   const app = sourceTemplateKey
     ? getConnectableAppDefinition(sourceTemplateKey)
     : null;
-  if (!app) return {};
-  const method = connectionMethodForConnection(app, connection);
-  return (
-    normalizeConnectionMethodConfig(
+  const headers: Record<string, string> = {};
+  if (app) {
+    const method = connectionMethodForConnection(app, connection);
+    Object.assign(headers, normalizeConnectionMethodConfig(
       method,
       asRecord(connection.config.methodConfig),
-    ).headers ?? {}
-  );
+    ).headers);
+  }
+  if (
+    connection.transport === "mcp_remote" &&
+    (sourceTemplateKey === "github" || connection.transportConfig?.sourceTemplateKey === "github")
+  ) {
+    // GitHub excludes Actions from its default catalog. Project this on every
+    // discovery and invocation so existing connections gain the toolset too.
+    headers["X-MCP-Toolsets"] = "default,actions";
+  }
+  return headers;
 }
 
 function mergeManagedToolArguments(
