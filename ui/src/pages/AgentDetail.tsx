@@ -153,6 +153,10 @@ const runStatusIcons: Record<string, { icon: typeof CheckCircle2; color: string 
 const RUN_LOG_PAGE_BYTES = 256_000;
 const AGENT_HEARTBEAT_RUN_PAGE_SIZE = 25;
 
+export function agentHeartbeatRunListOptions(offset: number) {
+  return { offset };
+}
+
 const REDACTED_ENV_VALUE = "***REDACTED***";
 const SECRET_ENV_KEY_RE =
   /(api[-_]?key|access[-_]?token|auth(?:_?token)?|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connectionstring)/i;
@@ -924,7 +928,7 @@ export function AgentDetail() {
       resolvedCompanyId!,
       agent?.id ?? undefined,
       AGENT_HEARTBEAT_RUN_PAGE_SIZE,
-      { summary: true, offset: pageParam },
+      agentHeartbeatRunListOptions(pageParam),
     ),
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
