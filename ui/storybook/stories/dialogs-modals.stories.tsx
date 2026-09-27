@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import type {
   DocumentRevision,
   ExecutionWorkspaceCloseReadiness,
@@ -714,6 +715,48 @@ export const NewIssuePrefilled: Story = {
       <IssueDialogOpener variant="prefilled" />
     </DialogStory>
   ),
+};
+
+export const NewIssueMobileAssigneePicker: Story = {
+  name: "New Issue - Mobile Assignee Picker",
+  parameters: {
+    viewport: { defaultViewport: "iphone14" },
+  },
+  render: () => (
+    <DialogStory
+      eyebrow="NewIssueDialog"
+      title="Mobile assignee picker"
+      description="The real new-task dialog with its assignee sheet open at an iOS viewport size."
+      badges={["iOS", "mobile", "assignee picker"]}
+    >
+      <IssueDialogOpener variant="empty" />
+    </DialogStory>
+  ),
+  play: async () => {
+    const page = within(document.body);
+    await userEvent.click(await page.findByRole("button", { name: "Assignee" }));
+  },
+};
+
+export const NewIssueMobileProjectPicker: Story = {
+  name: "New Issue - Mobile Project Picker",
+  parameters: {
+    viewport: { defaultViewport: "iphone14" },
+  },
+  render: () => (
+    <DialogStory
+      eyebrow="NewIssueDialog"
+      title="Mobile project picker"
+      description="The real new-task dialog with its project sheet open at an iOS viewport size."
+      badges={["iOS", "mobile", "project picker"]}
+    >
+      <IssueDialogOpener variant="empty" />
+    </DialogStory>
+  ),
+  play: async () => {
+    const page = within(document.body);
+    await userEvent.click(await page.findByRole("button", { name: "Project" }));
+  },
 };
 
 export const NewIssueValidationError: Story = {
