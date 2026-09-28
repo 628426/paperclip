@@ -4655,6 +4655,9 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
                     "paperclip-runner-workspace-read-only"
                       ? "plan"
                       : "default",
+                  ...(params.conversationMode === "prepared"
+                    ? { conversationMode: "prepared" }
+                    : {}),
                   includeCollaborationModeInstructions:
                     includeCodexCollaborationInstructions,
                   ...(provider === "codex"
