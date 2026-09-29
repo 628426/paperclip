@@ -4566,9 +4566,6 @@ export async function buildPaperclipRuntimeMcpServers(input: {
   agent: Pick<typeof agents.$inferSelect, "id" | "companyId" | "name">;
   runId: string;
   expectedAssignmentDigest?: string | null;
-  onUnavailableAssignedConnections?: (
-    connections: Array<{ id: string; name: string }>,
-  ) => void | Promise<void>;
 }): Promise<AdapterRuntimeMcpServer[]> {
   const access = toolAccessService(input.db);
   const effective = await access.getEffectiveProfilesForAgent(
@@ -4641,38 +4638,11 @@ export async function buildPaperclipRuntimeMcpServers(input: {
       ((Boolean(runIdentity?.activeIdentityContextId) &&
         (connection.config?.sourceTemplateKey === "github" ||
           connection.transportConfig?.sourceTemplateKey === "github")) ||
+        connection.credentialPolicy === "per_user" ||
         !isToolConnectionAttentionHealth(connection.healthStatus)) &&
       (connection.transport === "mcp_remote" ||
         connection.transport === "local_stdio" || githubBotConnectionIds.has(connection.id)),
   );
-  const unhealthyConnections = resolvedInstalledConnections.filter(
-    (connection) =>
-      permittedConnectionIds.has(connection.id) &&
-      (connection.transport === "mcp_remote" ||
-        connection.transport === "local_stdio") &&
-      (!connection.enabled ||
-        connection.status !== "active" ||
-        isToolConnectionAttentionHealth(connection.healthStatus)),
-  );
-  if (unhealthyConnections.length && input.onUnavailableAssignedConnections) {
-    try {
-      await input.onUnavailableAssignedConnections(
-        unhealthyConnections
-          .map(({ id, name }) => ({ id, name }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      );
-    } catch (error) {
-      logger.warn(
-        {
-          companyId: input.agent.companyId,
-          agentId: input.agent.id,
-          runId: input.runId,
-          err: error,
-        },
-        "failed to report unavailable runtime MCP connections",
-      );
-    }
-  }
   const assignedConnectionIds = new Set(
     assignedConnections.map((connection) => connection.id),
   );
@@ -24331,15 +24301,6 @@ export function heartbeatService(
               agent,
               runId: run.id,
               expectedAssignmentDigest: expectedNativeMcpDigest,
-              onUnavailableAssignedConnections: async (connections) => {
-                const names = connections
-                  .map((connection) => connection.name)
-                  .join(", ");
-                await onLog(
-                  "stderr",
-                  `[paperclip] App connection${connections.length === 1 ? "" : "s"} unavailable: ${names}. Continuing this run without ${connections.length === 1 ? "it" : "them"}; reconnect from Apps to restore access.\n`,
-                );
-              },
             });
             if ("runtimeContext" in nativeExecution) {
               if (nativeMcpServers.length > 1)
@@ -26539,6 +26500,9 @@ export function heartbeatService(
 
     let agent = await getAgent(agentId);
     if (!agent) throw notFound("Agent not found");
+    // Mentions only annotate comments. Ignore legacy callers before creating
+    // a run or deferred request; assignment and review have their own wakes.
+    if (reason === "issue_comment_mentioned" || enrichedContextSnapshot.wakeReason === "issue_comment_mentioned") return null;
     if (issueId) {
       const conversation = await getIssueExecutionContext(agent.companyId, issueId);
       if (reason === "issue_children_completed" && conversation?.originKind === "onboarding_first_task") enrichedContextSnapshot.onboardingCompletion = true;
