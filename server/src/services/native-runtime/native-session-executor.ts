@@ -7167,6 +7167,12 @@ export async function executePaperclipNativeSession(input: {
   chatAttachmentReadScope?: NativeChatAttachmentReadScope;
   onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
   onEvent?: (event: AdapterRuntimeEvent) => Promise<void>;
+  /** Only this run's registered private instruction entry.
+   * Probe at terminal; persist only after owned shutdown. */
+  instructionWorkingCopy?: {
+    hasChanges: () => Promise<boolean>;
+    collectStopped: () => Promise<void>;
+  };
   /** Persist task-level continuity before a durable goal can outlive this run. */
   onGoalCheckpoint?: (snapshot: PersistedNativeSession) => Promise<void>;
   sessionGoalControl?: NativeSessionGoalControl | null;
@@ -8305,7 +8311,8 @@ async function executePaperclipNativeSessionWithinScope(
             resumeSessionGoalHeartbeat: input.resumeSessionGoalHeartbeat,
             // Every durable runner must finish its bounded suspension before
             // the next run verifies and rotates the saved authority.
-            requireSessionCloseBeforeReturn: runnerdBackend !== null,
+            requireSessionCloseBeforeReturn: runnerdBackend !== null || input.instructionWorkingCopy !== undefined,
+            onSessionClosed: input.instructionWorkingCopy?.collectStopped,
             onCheckpoint: async (snapshot) => {
               if (warmSessionId !== null && warmConfigDigest !== null) {
                 await persistWarmNativeCheckpoint(
@@ -9065,12 +9072,22 @@ async function executePaperclipNativeSessionWithinScope(
   // A following run cannot attach until the prior run's durable finalization
   // is committed. Provider completion alone is not an authority boundary.
   if (warmSessionId !== null && lifecyclePolicy.mode === "warm") {
+    const instructionCopy = input.instructionWorkingCopy;
+    const ownedSession = warmNativeSessions.get(warmSessionId);
+    const collectInstructions = Boolean(instructionCopy && ownedSession?.ownerToken === warmSessionOwnerToken &&
+      await instructionCopy.hasChanges());
+    if (collectInstructions && ownedSession) {
+      // Keep the unchanged warm path intact. A changed private instruction copy
+      // requires the existing checkpoint-and-close boundary before collection.
+      ownedSession.closeOnReleaseReason = "registered instruction edits require stopped-provider collection";
+    }
     await releaseWarmNativeSession(
       warmSessionId,
       warmSessionOwnerToken,
       lifecyclePolicy.idleTimeoutMs,
       false,
     );
+    if (collectInstructions) await instructionCopy!.collectStopped();
   }
   const adapterResult: AdapterExecutionResult = {
     exitCode: native.terminal.runTerminalState === "succeeded" ? 0 : 1,

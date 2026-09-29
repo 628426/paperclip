@@ -156,6 +156,7 @@ function createTransportBackedNativeSessionBackend(
           ? (input.provider.approvalPolicy ?? "never")
           : "never",
       baseInstructions: nativeSystemInstructions(input),
+      instructionWorkingCopyRoot: "runtimeContext" in input ? input.runtimeContext.instructions.workingCopy?.rootPath : undefined,
       includeSkillInstructions: isCodex && "runtimeContext" in input,
       skillInputs: isCodex
         ? nativeTaskSkillInputs(

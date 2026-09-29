@@ -1,3 +1,4 @@
+import { instructionPersistenceTask } from "./instruction-persistence.js";
 import { apiResponseReadingTask } from "./api-response-reading.js";
 import { accountingTasks } from "./accounting-cases.js";
 import { continuationTasks } from "./continuation-cases.js";
@@ -986,6 +987,15 @@ const everydayProfiles = [
 
 export const runnerSuites: readonly RunnerSuiteFixture[] = [
   {
+    id: "instruction-persistence", label: "Instruction Persistence",
+    description: "Agent-owned text and binary files round trip through the editor, survive a server restart and fresh task, and synchronize concurrent edits per file with last-sync-wins.",
+    groups: [], profiles: codexContinuityProfiles,
+    environments: [localEnvironment, runnerEnvironments.find(environment => environment.id === "daytona")!], tasks: [instructionPersistenceTask],
+    excludedExecutionIds: ["instruction-persistence.legacy-codex.daytona.private-copy-persists"],
+    expectedMatrixSize: 3, manualOnly: true,
+    definitionMetadata: { version: 6, oracle: "current-directory-independent-nonce-binary-last-sync-wins-and-nonblocking-storage-quota", providerTurns: 6, restart: "between-tasks", instructions: "production" },
+  },
+  {
     id: "grok-subscription-qualification", label: "Grok Build Subscription Qualification", manualOnly: true,
     description: "Explicit company subscription login across Grok browser workflows in local and Daytona environments.",
     groups: ["native"],
@@ -1313,6 +1323,7 @@ export function validateRunnerCatalog(): MatrixExecution[] {
     ...localIntegrityTasks,
     ...openRouterBreadthTasks,
     daytonaWarmContinuityTask,
+    instructionPersistenceTask,
   ];
   for (const [label, values] of [
     ["suite", runnerSuites],

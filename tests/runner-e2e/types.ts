@@ -25,7 +25,8 @@ export type RunnerTaskFlow =
   | "plan_revision_acceptance"
   | "question_resume_completion"
   | "plan_approval_completion"
-  | "warm_three_turn";
+  | "warm_three_turn"
+  | "instruction_persistence";
 
 export interface SecretReference {
   type: "secret_ref";

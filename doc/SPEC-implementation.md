@@ -1725,6 +1725,23 @@ read or change these preferences. The legacy instance general setting is retaine
 for API compatibility but no longer controls shortcut behavior in the app;
 users opt in individually after the upgrade.
 
+### Persistent managed agent files (2026-09-28)
+
+The Instructions Editor and agent execution share one current agent-owned
+directory, scoped by company and agent. The configured instruction entry is one
+file in this directory. Registered private copies synchronize supported files
+across tasks and sessions, separately from task workspace persistence. Saves
+require verified provider stop and current authorization, then synchronize changed
+files using per-file last-sync-wins;
+new content is not stored as revision history. Existing deployed revisions and
+saved execution formats remain compatible during adoption. See
+[Persistent agent files](agent-files.md).
+
+Persistent-file storage limits are advisory for execution: a full folder cannot
+pause the agent, fail its run, or prevent later runs. Show a warning on each run
+while storage remains full, restore existing files so the agent can remove them,
+and enforce the limits on saves. Cleanup clears the warning for future runs.
+
 ### Unsafe native workspace exports
 
 An unsafe workspace link does not fail an accepted native task result. Retry

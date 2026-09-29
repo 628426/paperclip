@@ -191,6 +191,30 @@ duplicating the final response. The second workflow restarts the isolated
 Paperclip server while the interaction is waiting, reloads that state, and
 then resumes it. The suite has no Daytona cells.
 
+`instruction-persistence` is an explicit-only three-cell workflow: legacy and
+native Codex locally, plus native Codex on Daytona. Each creates six browser tasks
+for the same agent. The editor first creates a nested supporting file. The first
+run edits its registered AGENT_HOME using ordinary filesystem tools: instructions,
+nested text, editor-created content, and exact binary bytes. The oracle checks the
+current files, a stopped-run save receipt, and absence of newly appended history.
+The first task also publishes a small verification receipt for the normal
+completion contract; the personal files stay in the agent directory.
+After a Paperclip restart, a fresh task must upload a downloaded proof attachment
+containing independent saved nonces absent from its prompt. A third task edits its
+private copy while the browser edits the same current file. The later run sync
+must win for that changed file, preserve an unrelated board-created file, and
+produce no conflict candidate or manual review step. Exact bytes, downloads,
+and receipts are independently checked; model claims alone cannot pass.
+Three further tasks fill a sparse personal file to its 256 MiB limit, exceed
+that limit, and clean it up. Every run must still succeed; the run UI must show
+a warning while full and clear it after cleanup. Rejected bytes must not replace
+the saved file. This adds at most one 256 MiB saved fixture per isolated agent.
+The deadline is twenty minutes per cell, with six expected provider runs;
+normal instance/Daytona cleanup, screenshots, evidence, and billing apply. Run with
+`pnpm test:e2e:runner -- --suite instruction-persistence`. Managed agent directories
+checkpoint and close the provider before collection while retaining conversation
+state. The separate `daytona-warm-continuity` suite covers warm runtime behavior.
+
 `daytona-warm-continuity` (**Daytona Warm Continuity**) is exactly two paid
 cells: legacy Codex and Runner Codex against one reusable warm Daytona
 configuration. Each cell creates a real project with a primary local-path
@@ -423,6 +447,14 @@ the image job deliberately fails its anonymous-pull check otherwise. Existing
 content tags are never rebuilt or overwritten by the workflow.
 
 ### Match the local controller package to the Daytona image
+
+When the controller runs on macOS or another platform different from the sandbox,
+set `PAPERCLIP_RUNNER_REMOTE_BINARY_PATH` to a verified Linux amd64
+`paperclip-runnerd`, such as the binary copied from `/usr/local/bin/paperclip-runnerd`
+in the pinned image. The controller must have these exact bytes for its artifact
+identity check. A local macOS runner cannot substitute for the Linux binary,
+even when the sandbox image contains a compatible runner. This also applies to
+native Codex cells, which do not otherwise need the remote provider pack below.
 
 Native ACPX (including Claude) and OpenCode Daytona cells also require
 `PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH` on the controller. The package and

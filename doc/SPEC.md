@@ -620,6 +620,18 @@ read or change these preferences. The legacy instance general setting is retaine
 for API compatibility but no longer controls shortcut behavior in the app;
 users opt in individually after the upgrade.
 
+Managed agents own a persistent file directory across tasks and sessions. The
+Instructions Editor and stopped agent execution synchronize the same current
+files, including AGENTS.md and its supporting files. Task working directories and
+provider home directories remain separate concepts. Concurrent runs synchronize only
+the files they change, with the last sync winning for the same file. Temporary
+copies are cleaned up; this storage does not add a revision-history system. See
+[agent-files.md](agent-files.md) for lifecycle and upgrade compatibility.
+
+Full agent storage produces a run warning without stopping current or future
+work. Storage limits constrain saved file changes, not the agent's ability to run
+and remove files to recover space.
+
 ### Unsafe native workspace exports
 
 An unsafe workspace link does not fail an accepted native task result. Retry

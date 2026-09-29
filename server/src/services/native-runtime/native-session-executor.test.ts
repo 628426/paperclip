@@ -5870,6 +5870,57 @@ describe("native session same-turn steering", () => {
 });
 
 describe("native warm session supervision", () => {
+  it.each([
+    { changed: false, closeFails: false },
+    { changed: true, closeFails: false },
+    { changed: true, closeFails: true },
+  ])("collects changed instructions only after the owned warm provider stops (changed=$changed, close fails=$closeFails)", async ({ changed, closeFails }) => {
+    const identity = `instruction-close-${changed}-${closeFails}`;
+    let releaseClose!: () => void;
+    const closed = new Promise<void>((resolve) => { releaseClose = resolve; });
+    const close = vi.fn(async () => { await closed; if (closeFails) throw new Error("instruction provider close failed"); });
+    const collectStopped = vi.fn(async () => {});
+    const hasChanges = vi.fn(async () => changed);
+    const warmExecution = { ...execution,
+      binding: { ...execution.binding, runId: identity, executionWorkspaceId: identity },
+      session: { ...execution.session, normalizedSessionId: identity, lifecyclePolicy: { mode: "warm" as const, idleTimeoutMs: 60_000 } },
+    } as NativeExecutionInputV1;
+    state.execute.mockReset().mockImplementationOnce(async (options) => {
+      expect(options.requireSessionCloseBeforeReturn).toBe(true);
+      expect(options.onSessionClosed).toBe(collectStopped);
+      await options.onSession?.({ close });
+      return { result: { summary: "completed" }, terminal: { runTerminalState: "succeeded" },
+        turnId: identity, normalizedSessionId: identity, providerSessionId: identity,
+        driverKind: "test", driverVersion: "1", nativeEventCount: 1, highestContiguousSourceSeq: 1, usage: null };
+    });
+    const running = executePaperclipNativeSession({ db: leaseDb(warmExecution), execution: warmExecution,
+      runnerInstanceId: identity, runnerExecutionTarget: { kind: "remote", transport: "sandbox", environmentId: identity, remoteCwd: `/tmp/${identity}` },
+      instructionWorkingCopy: { hasChanges, collectStopped } });
+    const observed = running.then(() => null, error => error);
+    try {
+      if (changed) {
+        await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+        expect(collectStopped).not.toHaveBeenCalled();
+        releaseClose();
+        const error = await observed;
+        if (closeFails) {
+          expect(error?.message).toBe("instruction provider close failed");
+          expect(collectStopped).not.toHaveBeenCalled();
+        } else {
+          expect(error).toBeNull();
+          expect(collectStopped).toHaveBeenCalledOnce();
+        }
+      } else {
+        expect(await observed).toBeNull();
+        expect(close).not.toHaveBeenCalled();
+        expect(collectStopped).not.toHaveBeenCalled();
+      }
+    } finally {
+      releaseClose();
+      await closeWarmNativeSessionsForEnvironment({ environmentId: identity, reason: "test cleanup" });
+    }
+  });
+
   describe("warm session identity transitions", () => {
     let previousHome: string | undefined;
     let isolatedHome: string;

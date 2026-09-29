@@ -660,7 +660,7 @@ export class CodexAppServerDriver implements HarnessDriver {
       this.#options.transportFactory?.(context) ??
       new ProcessCodexAppServerTransport({
         workingDirectory,
-        args: createIsolatedCodexAppServerArgs(this.#options.environment, codexExecutableReadOnlyRoots(this.#options.environment ?? process.env)),
+        args: createIsolatedCodexAppServerArgs(this.#options.environment, codexExecutableReadOnlyRoots(this.#options.environment ?? process.env), this.#options.instructionWorkingCopyRoot),
         environment: createSanitizedCodexEnvironment(this.#options.environment),
         onDiagnostic: this.#options.onDiagnostic,
         processGroup: true,

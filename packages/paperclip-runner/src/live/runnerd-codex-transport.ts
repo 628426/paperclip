@@ -3277,6 +3277,7 @@ export function createRunnerdCodexAppServerArgs(input: {
   codexHome: string;
   codexCommand?: string;
   readOnlyRoots?: string[];
+  instructionWorkingCopyRoot?: string;
 }): string[] {
   // The filesystem policy denies HOME and CODEX_HOME to keep credentials and
   // runner state outside provider reach. Always bind those names to the actual
@@ -3289,6 +3290,7 @@ export function createRunnerdCodexAppServerArgs(input: {
       CODEX_HOME: input.codexHome,
     },
     [...(input.readOnlyRoots ?? []), ...codexExecutableReadOnlyRoots(input.environment ?? {}, input.codexCommand)],
+    input.instructionWorkingCopyRoot,
   );
 }
 
@@ -4628,6 +4630,7 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
                           environment: this.options.environment,
                           codexHome,
                           codexCommand: this.options.codexCommand,
+                          instructionWorkingCopyRoot: runtimeContext?.instructions.workingCopy?.rootPath,
                           readOnlyRoots: [
                             ...trustedRuntimeReadOnlyRoots(
                               this.options.environment,
@@ -5119,6 +5122,7 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
             environment: this.options.environment,
             codexHome,
             codexCommand: this.options.codexCommand,
+            instructionWorkingCopyRoot: runtimeContext?.instructions.workingCopy?.rootPath,
             readOnlyRoots: [
               ...trustedRuntimeReadOnlyRoots(this.options.environment),
               ...(runtimeContext
