@@ -90,6 +90,8 @@ async function captureTerminalRunFailure(
           : sanitizeAdapterText(run.errorCode, MAX_ERROR_CODE_LENGTH),
       agentAdapter: agent?.adapterType ?? UNKNOWN_ADAPTER,
       runStatus,
+      exitCode: run.exitCode,
+      signal: run.signal,
     });
   } catch (err) {
     logger.warn({ err, runId: run.id }, "failed to report run failure to Sentry");

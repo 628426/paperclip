@@ -62,6 +62,8 @@ describe.skipIf(!sentryPackage)("run failure context with the real Sentry SDK", 
       errorCode: "adapter_failed",
       agentAdapter: "fixture-adapter",
       runStatus: "failed" as const,
+      exitCode: 1,
+      signal: null,
     };
     const second = {
       ...first,
@@ -71,15 +73,23 @@ describe.skipIf(!sentryPackage)("run failure context with the real Sentry SDK", 
       errorCode: "timeout",
       agentAdapter: "other-adapter",
       runStatus: "timed_out" as const,
+      exitCode: null,
+      signal: "SIGKILL",
     };
     captureRunFailure(first);
     await Promise.resolve();
     captureException(new Error("unrelated database error"));
     captureRunFailure(second);
+    captureRunFailure({
+      ...first,
+      errorMessage: "malformed process metadata",
+      exitCode: NaN,
+      signal: "private-signal-payload",
+    });
     captureException(new Error("unrelated filesystem error"));
     await Sentry.flush(2000);
 
-    expect(events).toHaveLength(4);
+    expect(events).toHaveLength(5);
     const captured = (message: string) => events.find((event) =>
       (event.exception as { values: Array<{ value: string }> }).values[0]?.value === message,
     );
@@ -88,10 +98,16 @@ describe.skipIf(!sentryPackage)("run failure context with the real Sentry SDK", 
         tags: { run_id: run.runId, task_id: run.taskId, error_code: run.errorCode,
           agent_adapter: run.agentAdapter, run_status: run.runStatus },
         contexts: { run_failure: { runId: run.runId, taskId: run.taskId,
-          errorMessage: run.errorMessage, errorCode: run.errorCode, agentAdapter: run.agentAdapter } },
+          errorMessage: run.errorMessage, errorCode: run.errorCode, agentAdapter: run.agentAdapter,
+          exitCode: run.exitCode, signal: run.signal } },
         fingerprint: [run.errorCode, run.agentAdapter],
       });
     }
+    expect(captured("malformed process metadata")).toMatchObject({
+      contexts: { run_failure: { exitCode: null, signal: "unknown" } },
+      fingerprint: [first.errorCode, first.agentAdapter],
+    });
+    expect(JSON.stringify(events)).not.toContain("private-signal-payload");
     for (const message of ["unrelated database error", "unrelated filesystem error"]) {
       const event = captured(message);
       expect(event).toBeDefined();

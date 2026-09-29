@@ -119,7 +119,7 @@ describe("captureRunFailure", () => {
     expect(captureException.mock.calls[0]![1]?.fingerprint).toEqual(["unknown", "claude-code"]);
   });
 
-  it("sets the five diagnostic values on the run_failure context", async () => {
+  it("keeps missing process exit evidence null on the run_failure context", async () => {
     const { sentryModule, captureException } = await importFreshSentryWithGateOpen();
     const event = baseEvent();
 
@@ -131,7 +131,52 @@ describe("captureRunFailure", () => {
       errorMessage: event.errorMessage,
       errorCode: event.errorCode,
       agentAdapter: event.agentAdapter,
+      exitCode: null,
+      signal: null,
     });
+  });
+
+  it.each([
+    { exitCode: 1, signal: null },
+    { exitCode: 0, signal: null },
+    { exitCode: -1, signal: null },
+    { exitCode: -2147483648, signal: null },
+    { exitCode: 2147483647, signal: null },
+    { exitCode: null, signal: "SIGTERM" },
+    { exitCode: null, signal: "SIGKILL" },
+  ])("retains process exit evidence without changing grouping: %j", async (processExit) => {
+    const { sentryModule, captureException } = await importFreshSentryWithGateOpen();
+    const event = baseEvent({ ...processExit, errorMessage: "Adapter failed", errorCode: "adapter_failed" });
+
+    sentryModule.captureRunFailure(event);
+
+    const [error, context] = captureException.mock.calls[0]!;
+    expect((error as Error).message).toBe("Adapter failed");
+    expect(context?.contexts.run_failure).toMatchObject(processExit);
+    expect(context?.fingerprint).toEqual(["adapter_failed", event.agentAdapter]);
+    expect(context?.tags).not.toHaveProperty("exitCode");
+    expect(context?.tags).not.toHaveProperty("signal");
+  });
+
+  it.each([
+    ["private-exit-payload", "SIGTERM private-signal-payload"],
+    ["1", "constructor"],
+    [true, "__proto__"],
+    [1.5, "SIGCUSTOM"],
+    [NaN, ""],
+    [Infinity, 9],
+    [2147483648, { private: "signal-payload" }],
+    [-2147483649, ["SIGTERM"]],
+  ])("rejects malformed process exit fields (%j, %j)", async (exitCode, signal) => {
+    const { sentryModule, captureException } = await importFreshSentryWithGateOpen();
+
+    sentryModule.captureRunFailure({ ...baseEvent(), exitCode, signal } as RunFailureEvent);
+
+    expect(captureException.mock.calls[0]![1]?.contexts.run_failure).toMatchObject({
+      exitCode: null,
+      signal: "unknown",
+    });
+    expect(JSON.stringify(captureException.mock.calls)).not.toContain("private-");
   });
 
   it("does not set an instance key on the run_failure context", async () => {

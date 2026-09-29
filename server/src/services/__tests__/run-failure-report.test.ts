@@ -112,6 +112,35 @@ describeEmbeddedPostgres("reportRunFailure", () => {
     );
   });
 
+  it("forwards stored exit evidence even when the adapter error is generic", async () => {
+    await seedCompanyAndAgent();
+    for (const processExit of [
+      { exitCode: 1, signal: null },
+      { exitCode: null, signal: "SIGTERM" },
+      { exitCode: null, signal: null },
+    ]) {
+      mockCaptureRunFailure.mockClear();
+      await reportRunFailure(db, buildRun({
+        error: "Adapter failed",
+        errorCode: "adapter_failed",
+        ...processExit,
+        stdoutExcerpt: "private-output",
+        stderrExcerpt: "private-error-output",
+        resultJson: { private: "adapter-result" },
+      }));
+
+      expect(mockCaptureRunFailure).toHaveBeenCalledWith(expect.objectContaining({
+        errorMessage: "Adapter failed",
+        errorCode: "adapter_failed",
+        ...processExit,
+      }));
+      const captured = mockCaptureRunFailure.mock.calls[0][0];
+      expect(captured).not.toHaveProperty("stdoutExcerpt");
+      expect(captured).not.toHaveProperty("stderrExcerpt");
+      expect(captured).not.toHaveProperty("resultJson");
+    }
+  });
+
   it("captures nothing for succeeded, cancelled, and interrupted", async () => {
     await seedCompanyAndAgent();
     for (const status of ["succeeded", "cancelled", "interrupted"] as const) {

@@ -132,6 +132,28 @@ export interface RunFailureEvent {
   agentAdapter: string;
   /** The run status that triggered this report. */
   runStatus: RunFailureStatus;
+  /** Recorded process exit evidence, when available. Validated before capture. */
+  exitCode?: number | null;
+  signal?: string | null;
+}
+
+function normalizeRunExitCode(value: unknown): number | null {
+  // Match the persisted PostgreSQL integer. Do not coerce adapter-supplied text.
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= -2147483648 &&
+    value <= 2147483647
+    ? value
+    : null;
+}
+
+function normalizeRunSignal(value: unknown): string | null {
+  if (value == null) return null;
+  // Only host signal constants may leave the process; arbitrary adapter text
+  // can contain output or credentials even when stored in the signal column.
+  return typeof value === "string" && Object.hasOwn(os.constants.signals, value)
+    ? value
+    : "unknown";
 }
 
 /**
@@ -167,6 +189,8 @@ export function captureRunFailure(event: RunFailureEvent): void {
           errorMessage: event.errorMessage,
           errorCode,
           agentAdapter: event.agentAdapter,
+          exitCode: normalizeRunExitCode(event.exitCode),
+          signal: normalizeRunSignal(event.signal),
         },
       },
       fingerprint: [errorCode, event.agentAdapter],
