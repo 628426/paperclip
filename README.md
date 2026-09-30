@@ -24,6 +24,10 @@
   <video src="https://github.com/user-attachments/assets/773bdfb2-6d1e-4e30-8c5f-3487d5b70c8f" width="600" controls></video>
 </div>
 
+<p align="center">
+  <a href="https://paperclip.ing/waitlist/"><strong>Sign up for the Paperclip Cloud waitlist →</strong></a>
+</p>
+
 <br/>
 
 # Paperclip is the app people use to manage AI agents for work.
@@ -49,13 +53,19 @@ It looks like a task manager. Under the hood: org charts, budgets, governance, g
 <div align="center">
 <table>
   <tr>
-    <td align="center"><strong>Works<br/>with</strong></td>
-    <td align="center"><img src="doc/assets/logos/openclaw.svg" width="32" alt="OpenClaw" /><br/><sub>OpenClaw</sub></td>
-    <td align="center"><img src="doc/assets/logos/claude.svg" width="32" alt="Claude" /><br/><sub>Claude Code</sub></td>
-    <td align="center"><img src="doc/assets/logos/codex.svg" width="32" alt="Codex" /><br/><sub>Codex</sub></td>
-    <td align="center"><img src="doc/assets/logos/cursor.svg" width="32" alt="Cursor" /><br/><sub>Cursor</sub></td>
-    <td align="center"><img src="doc/assets/logos/bash.svg" width="32" alt="Bash" /><br/><sub>Bash</sub></td>
-    <td align="center"><img src="doc/assets/logos/http.svg" width="32" alt="HTTP" /><br/><sub>HTTP</sub></td>
+    <td align="center" rowspan="2"><strong>Works<br/>with</strong></td>
+    <td align="center" valign="top"><img src="doc/assets/logos/openclaw.svg" width="32" height="32" alt="OpenClaw" /><br/><sub>OpenClaw</sub></td>
+    <td align="center" valign="top"><img src="doc/assets/logos/claude.svg" width="32" height="32" alt="Claude Code" /><br/><sub>Claude Code</sub></td>
+    <td align="center" valign="top"><img src="ui/public/brands/codex-color.svg" width="32" height="32" alt="Codex" /><br/><sub>Codex</sub></td>
+    <td align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brands/adapters/cursor-dark.svg" /><img src="ui/public/brands/adapters/cursor.svg" width="32" height="32" alt="Cursor and Cursor Cloud" /></picture><br/><sub>Cursor<br/>+ Cloud</sub></td>
+    <td align="center" valign="top"><img src="ui/public/brands/adapters/gemini-color.svg" width="32" height="32" alt="Gemini CLI" /><br/><sub>Gemini CLI</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brands/opencode-logo-dark-square.svg" /><img src="ui/public/brands/opencode-logo-light-square.svg" width="32" height="32" alt="OpenCode" /></picture><br/><sub>OpenCode</sub></td>
+    <td align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brands/adapters/pi-dark.svg" /><img src="ui/public/brands/adapters/pi.svg" width="32" height="32" alt="Pi" /></picture><br/><sub>Pi</sub></td>
+    <td align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brands/adapters/hermesagent-dark.svg" /><img src="ui/public/brands/adapters/hermesagent.svg" width="32" height="32" alt="Hermes and Hermes Gateway" /></picture><br/><sub>Hermes<br/>+ Gateway</sub></td>
+    <td align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brands/adapters/grok-dark.svg" /><img src="ui/public/brands/adapters/grok.svg" width="32" height="32" alt="Grok Build" /></picture><br/><sub>Grok Build</sub></td>
+    <td align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brands/adapters/kimi-color.svg" /><img src="ui/public/brands/adapters/kimi-color-light.svg" width="32" height="32" alt="Kimi Code" /></picture><br/><sub>Kimi Code</sub></td>
   </tr>
 </table>
 
@@ -63,7 +73,7 @@ It looks like a task manager. Under the hood: org charts, budgets, governance, g
 
 </div>
 
-Built-in adapters also support **Gemini CLI, OpenCode, Pi, Hermes, Grok, Kimi Code, and Cursor Cloud**. Custom processes, HTTP endpoints, and external adapter packages extend the roster. See the [adapter overview](https://docs.paperclip.ing/reference/adapters/overview/) for setup and capabilities.
+Custom processes, HTTP endpoints, and external adapter packages extend the roster. See the [adapter overview](https://docs.paperclip.ing/reference/adapters/overview/) for setup and capabilities.
 
 <br/>
 
@@ -118,7 +128,7 @@ Agents wake for assigned work, follow-up messages, or configured schedules. Dele
 <tr>
 <td align="center">
 <h3>💰 Cost Control</h3>
-Company, agent, and project budgets. Track reported spend, get threshold alerts, and pause work at configured limits.
+Company, agent, and project <a href="https://docs.paperclip.ing/guides/day-to-day/costs/">budgets</a>. Track reported spend, get threshold alerts, and pause work at configured limits.
 </td>
 <td align="center">
 <h3>🏢 Multi-Organization</h3>
@@ -132,7 +142,7 @@ Keep conversations, plans, blockers, files, and run history attached to the work
 <tr>
 <td align="center">
 <h3>🛡️ Governance</h3>
-Configure review and approval stages, approve hires, and pause, reassign, or stop work when needed.
+Configure <a href="https://docs.paperclip.ing/guides/day-to-day/approvals/">review and approval stages</a>, approve hires, and pause, reassign, or stop work when needed.
 </td>
 <td align="center">
 <h3>📊 Org Chart</h3>
@@ -146,29 +156,29 @@ Monitor and manage your autonomous businesses from anywhere.
 <tr>
 <td align="center">
 <h3>🔗 Apps & Connections</h3>
-Connect services such as GitHub, Notion, and Railway, or your own MCP server. Set gateway actions to Allowed, Ask first, or Off.
+<a href="https://docs.paperclip.ing/connectors/">Connect services</a> such as GitHub, Notion, and Railway, or your own MCP server. Set gateway actions to Allowed, Ask first, or Off.
 </td>
 <td align="center">
 <h3>👥 Shared Agents, Personal Accounts</h3>
-Choose who can use a connection and which agents can access it. Managed GitHub operations can use the account of the person directing the work.
+Choose <a href="https://docs.paperclip.ing/connectors/access-model/">who can use a connection and which agents can access it</a>. Managed GitHub operations can use the account of the person directing the work.
 </td>
 <td align="center">
 <h3>🧠 Skills & Skill Studio</h3>
-Install or write shared skills, test them with saved inputs, inspect results, and restore earlier versions.
+Install or write <a href="https://docs.paperclip.ing/guides/org/skills/">shared skills</a>, test them with saved inputs, inspect results, and restore earlier versions.
 </td>
 </tr>
 <tr>
 <td align="center">
 <h3>📅 Scheduled Routines</h3>
-Run recurring work on a schedule or trigger it through an API or webhook. Each run has a task, an owner, and a history.
+Run <a href="https://docs.paperclip.ing/guides/projects-workflow/routines/">recurring work</a> on a schedule or trigger it through an API or webhook. Each run has a task, an owner, and a history.
 </td>
 <td align="center">
 <h3>📎 Artifacts & Feedback</h3>
-Find the files and documents agents produce. Preview supported formats and leave comments on specific passages in documents.
+Find the <a href="https://docs.paperclip.ing/guides/day-to-day/artifacts/">files and documents agents produce</a>. Preview supported formats and leave comments on specific passages in documents.
 </td>
 <td align="center">
 <h3>📦 Ready-Made Teams</h3>
-Preview and install teams with roles, skills, projects, and routines. Choose their runtimes and make the setup your own.
+Preview and install <a href="https://docs.paperclip.ing/guides/org/team-catalog/">teams</a> with roles, skills, projects, and routines. Choose their runtimes and make the setup your own.
 </td>
 </tr>
 </table>
@@ -291,7 +301,7 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 <tr>
 <td>
 
-**Plugins** — Instance-wide plugin system with out-of-process workers, capability-gated host services, job scheduling, tool exposure, and UI contributions. Extend Paperclip without forking it.
+**[Plugins](https://docs.paperclip.ing/administration/plugins/)** — Instance-wide plugin system with out-of-process workers, capability-gated host services, job scheduling, tool exposure, and UI contributions. Extend Paperclip without forking it.
 
 </td>
 <td>
@@ -308,7 +318,7 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 </td>
 <td>
 
-**Company Portability** — Preview, export, and import organization packages with agents, skills, and optional projects, routines, tasks, and attachments. Referenced secret values are omitted; review packages before sharing because plain environment values and local paths can remain. Packages share an operating setup; full-instance recovery uses backups.
+**[Company Portability](https://docs.paperclip.ing/guides/power/export-import/)** — Preview, export, and import organization packages with agents, skills, and optional projects, routines, tasks, and attachments. Referenced secret values are omitted; review packages before sharing because plain environment values and local paths can remain. Packages share an operating setup; full-instance recovery uses backups.
 
 </td>
 </tr>
@@ -331,45 +341,23 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 ## Quickstart
 
-Open source. Self-hosted. No Paperclip account required.
+Open source. Self-hosted. No Paperclip account required. Follow the [guided quickstart](https://docs.paperclip.ing/guides/getting-started/five-minute-path/) to set up your first agent.
+
+### Just ask your agent to install Paperclip
+
+Share the [installation guide](https://docs.paperclip.ing/reference/cli/installation/) with your agent.
+
+### Or install it yourself
+
+With **Node.js 24.11 or newer** installed:
 
 ```bash
-curl -fsSLO https://paperclip.ing/install.sh
-curl -fsSLO https://paperclip.ing/install.sh.sha256
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum -c install.sh.sha256
-else
-  shasum -a 256 -c install.sh.sha256
-fi
-bash install.sh
-```
-
-The installer ensures Node.js 24.11 or newer is available, installs a managed
-Paperclip CLI under `~/.paperclip/cli`, and starts interactive onboarding. It
-can also install Paperclip as a background service on supported Linux and
-macOS systems. The checksum detects transfer or publishing mistakes, but it is
-served from the same origin as the script; use a release-tag or commit-pinned
-GitHub copy when you need an independently hosted source.
-
-For a non-interactive managed install:
-
-```bash
-curl -fsSL https://paperclip.ing/install.sh | bash -s -- --no-prompt --no-onboard
-paperclipai onboard --yes
-```
-
-The piped form requires supported Node.js, npm, and npx to already be present.
-If Node.js bootstrap is required, download and review `install.sh` before
-running it so no privileged dependency-install command is accepted through a
-pipe.
-
-To start through npx instead of the installer:
-
-```bash
-npx --registry https://registry.npmjs.org paperclipai onboard --yes
+npx paperclipai@latest onboard --yes
 ```
 
 The CLI runs from npm's cache; your instance configuration and data persist locally.
+
+See the [installation guide](https://docs.paperclip.ing/reference/cli/installation/) for managed installs, pinned versions, canary and git-ref installs, updates, rollback, service management, and uninstalling.
 
 For an isolated manual test instance that is already initialized with a CEO
 agent, use `test-drive`. It stays in the foreground, never installs a service
@@ -387,7 +375,7 @@ Each run without `--data-dir` gets a unique, retained temporary directory; its
 absolute path is printed at startup. Pass `--data-dir` to reuse one, or
 `--no-browser` to leave the initialized instance unopened. When invoked from a
 linked Git worktree, `test-drive` also enables task execution in that worktree.
-See [`doc/CLI.md`](doc/CLI.md#isolated-manual-test-drives) for credential and
+See the [test-drive guide](https://docs.paperclip.ing/reference/cli/test-drive/) for credential and
 reuse behavior.
 
 > **Troubleshooting: private npm registry `.npmrc`**
@@ -403,21 +391,18 @@ reuse behavior.
 > Workaround (cross-platform; force the public npm registry for this command):
 >
 > ```bash
-> npx --registry https://registry.npmjs.org paperclipai onboard --yes
+> npx --registry https://registry.npmjs.org paperclipai@latest onboard --yes
 > ```
 
 That quickstart path now defaults to trusted local loopback mode for the fastest first run. To start in authenticated/private mode instead, choose a bind preset explicitly:
 
 ```bash
-paperclipai onboard --yes --bind lan
+npx paperclipai@latest onboard --yes --bind lan
 # or:
-paperclipai onboard --yes --bind tailnet
+npx paperclipai@latest onboard --yes --bind tailnet
 ```
 
-If you already have Paperclip configured, rerunning `onboard` keeps the existing config in place. Use `paperclipai configure` to edit settings.
-
-See [`doc/INSTALLING.md`](doc/INSTALLING.md) for pinned versions, canary and
-git-ref installs, updates, rollback, service management, and uninstalling.
+If you already have Paperclip configured, rerunning `onboard` keeps the existing config in place. Use `npx paperclipai configure` to edit settings.
 
 Or manually:
 
@@ -438,24 +423,43 @@ Source development also builds the native Paperclip Runner when enabled (the sel
 
 ## FAQ
 
-**What does a typical setup look like?**
-Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres and deploy however you like. Configure projects, agents, and goals — the agents take care of the rest.
+**Q: Is this project maintained or just slop?**
 
-For remote access, use authenticated mode with a private-network bind such as Tailscale, or deploy the persistent server with Docker. See [deployment modes](doc/DEPLOYMENT-MODES.md) and the [Docker guide](doc/DOCKER.md).
+**A:** Paperclip is maintained by the [Paperclip team](https://paperclip.ing). We've merged [over 2,700 pull requests](https://github.com/paperclipai/paperclip/pulls?q=is%3Apr+is%3Amerged).
 
-**Can I run multiple companies?**
-Yes. A single deployment can host multiple organizations with company-scoped data and access checks.
+<br/>
 
-**How is Paperclip different from agents like OpenClaw or Claude Code?**
-Paperclip _uses_ those agents. It orchestrates them into a company — with org charts, budgets, goals, governance, and accountability.
+**Q: What does a typical setup look like?**
 
-**Why should I use Paperclip instead of just pointing my OpenClaw to Asana or Trello?**
-Agent orchestration has subtleties in how you coordinate who has work checked out, how to maintain sessions, monitoring costs, establishing governance - Paperclip does this for you.
+**A:** Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres and deploy however you like. Configure projects, agents, and goals — the agents take care of the rest.
+
+For remote access, use authenticated mode with a private-network bind such as Tailscale, or deploy the persistent server with Docker. See [deployment modes](https://docs.paperclip.ing/reference/deploy/deployment-modes/) and the [Docker guide](https://docs.paperclip.ing/reference/deploy/docker/).
+
+<br/>
+
+**Q: Can I run multiple companies?**
+
+**A:** Yes. A single deployment can host multiple organizations with company-scoped data and access checks.
+
+<br/>
+
+**Q: How is Paperclip different from agents like OpenClaw or Claude Code?**
+
+**A:** Paperclip _uses_ those agents. It orchestrates them into a company — with org charts, budgets, goals, governance, and accountability.
+
+<br/>
+
+**Q: Why should I use Paperclip instead of just pointing my OpenClaw to Asana or Trello?**
+
+**A:** Agent orchestration has subtleties in how you coordinate who has work checked out, how to maintain sessions, monitoring costs, establishing governance - Paperclip does this for you.
 
 (Bring-your-own-ticket-system is on the Roadmap)
 
-**Do agents run continuously?**
-Agents wake for assigned work and follow-up messages. Optional timer heartbeats let them check for work periodically; routines create recurring tasks on their own schedules. You can also connect externally running agents such as OpenClaw. A mention alone does not assign work or wake another agent.
+<br/>
+
+**Q: Do agents run continuously?**
+
+**A:** Agents wake for assigned work and follow-up messages. Optional timer heartbeats let them check for work periodically; routines create recurring tasks on their own schedules. You can also connect externally running agents such as OpenClaw. A mention alone does not assign work or wake another agent.
 
 <br/>
 
@@ -552,6 +556,8 @@ Telemetry is **enabled by default** and can be disabled with any of the followin
 ## Contributing
 
 We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for details.
+
+**[We're hiring](https://paperclip.ing/about/#careers)**
 
 <br/>
 
