@@ -1,4 +1,5 @@
 import type { heartbeatRuns } from "@paperclipai/db";
+import { WORKSPACE_RESTORE_FAILURE_CODES } from "@paperclipai/shared";
 import { redactDiagnosticText } from "@paperclipai/adapter-utils/command-redaction";
 import { redactCurrentUserText } from "../log-redaction.js";
 import { redactSensitiveText, REDACTED_EVENT_VALUE } from "../redaction.js";
@@ -146,6 +147,15 @@ export function collectRunFailureDiagnostics(run: Run, options: RunFailureReport
     "mode", "stopReason", "timeoutFired", "timeoutSource", "timeoutConfigured",
     "effectiveTimeoutSec", "errorFamily",
   ]));
+  for (const field of ["acpLastEventAgeMs", "acpObservedEventCount", "acpPendingToolCount"]) {
+    const value = read(result, field);
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) execution[field] = value;
+  }
+  const toolInventoryComplete = read(result, "acpToolInventoryComplete");
+  if (typeof toolInventoryComplete === "boolean") execution.acpToolInventoryComplete = toolInventoryComplete;
+  const restoreFailure = read(result, "workspaceRestoreFailure");
+  const restoreCode = WORKSPACE_RESTORE_FAILURE_CODES.find((code) => code === restoreFailure);
+  if (restoreCode) execution.workspaceRestoreFailure = restoreCode;
   const adapter = scalars(options.adapterErrorMeta, [
     "category", "phase", "errorName", "acpCode", "causeMessage", "retryable",
     "stackPreview", "status", "statusCode", "requestId",
