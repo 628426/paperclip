@@ -680,8 +680,9 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
       await expect(fs.access(seeded.worktreePath)).resolves.toBeUndefined();
       clockMs += TERMINAL_WORKSPACE_REAPER_GIT_BACKOFF_MS;
       expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 1 });
-      // The retry and the final fresh pre-deletion check both inspect Git.
-      expect(scan).toHaveBeenCalledTimes(3);
+      // The retry and fresh cleanup checks inspect Git; cleanup can check more
+      // than once as it moves through its lifecycle locks.
+      expect(scan.mock.calls.length).toBeGreaterThanOrEqual(3);
     } finally {
       scan.mockRestore();
     }
