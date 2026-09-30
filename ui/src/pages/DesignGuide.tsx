@@ -9,6 +9,7 @@ import { MediaArtifactCard } from "@/components/artifacts/MediaArtifactCard";
 import { WebhookUrlWarning } from "@/components/routine-triggers/WebhookUrlWarning";
 import { SetupWizardNavigation, SetupWizardFooter } from "../components/SetupWizard";
 import { RemoteMcpDesignExample } from "@/features/connections/remote-mcp/RemoteMcpDesignExample";
+import { AgentConversationSidebar } from "@/components/AgentConversationSidebar";
 import { AgentChatPicker } from "@/components/AgentChatPicker";
 import { TaskChatProjectCreatedCard } from "@/components/task-chat/TaskChatProjectCreatedCard";
 import { TextAttachmentPreview } from "@/components/task-side-panel/TaskAttachmentPanel";
@@ -1706,6 +1707,13 @@ export function DesignGuide() {
         </SubSection>
         <SubSection title="Agent chat picker">
           <AgentChatPickerExample />
+          <SubSection title="Agent conversation sidebar">
+            <div className="flex flex-wrap gap-4">
+              <div className="h-96 w-60"><AgentConversationSidebar agents={[]} onSelect={() => {}} onBrowse={() => {}} /></div>
+              <div className="h-96 w-60"><AgentConversationSidebar agents={[]} loading /></div>
+              <div className="h-96 w-60"><AgentConversationSidebar agents={[]} error={new Error("Unavailable")} onRetry={() => {}} /></div>
+            </div>
+          </SubSection>
         </SubSection>
         <SubSection title="Sidebar nav items">
           <p className="text-sm text-muted-foreground">
