@@ -1,3 +1,4 @@
+import { externalObjectService } from "./external-objects.js";
 import { isAiAuthenticationBlocked } from "./ai-auth-failure.js";
 import { CHAT_COMPLETION_WAKE_REASON, prepareChatCompletionTurn, chatCompletionInstruction, isCompletedOnboardingHandoffWake } from "./chat-completion-delivery.js";
 import { AgentDirectoryReuseInvalidatedError, isAgentDirectoryCopy } from "./agent-directory-working-copies.js";
@@ -8554,6 +8555,7 @@ export function buildPaperclipTaskMarkdown(input: {
     id: string;
     identifier: string | null;
     title: string;
+    titleNeedsGeneration?: boolean;
     workMode?: string | null;
     conversationAgentId?: string | null;
     description?: string | null;
@@ -8732,6 +8734,14 @@ export function buildPaperclipTaskMarkdown(input: {
       `- Issue: ${quoteTaskScalar(issue.identifier || issue.id)}`,
       `- Title: ${quoteTaskScalar(issue.title)}`,
     );
+    if (issue.titleNeedsGeneration && !issue.conversationAgentId) {
+      lines.push(
+        "",
+        "Task title directive:",
+        "The current title is a provisional slice of the user's prompt. As one of your first tool calls, use set_task_title with a concise title describing the requested outcome and onlyIfProvisional: true. If that tool is unavailable, PUT /api/issues/" + issue.id + "/title with {title, onlyIfProvisional: true} using your normal Paperclip authentication. Do this in Ask and Plan modes too. Preserve the full task description and any title already chosen by the user; then continue the task.",
+        "Check the title tool result. If its wording is rejected as credential material, retry once with a shorter, plain-language title that keeps the task's meaning and contains no secret values. Use a new idempotency key for changed arguments. Do not treat a rejected call as a saved title.",
+      );
+    }
     if (issue.conversationAgentId) {
       lines.push("", "Chat mode directive:", AGENT_CHAT_DIRECTIVE, `Current composer mode: ${issue.workMode ?? "standard"}.`);
       if (input.conversationConfirmations?.cards.length) {
@@ -10691,6 +10701,7 @@ export function heartbeatService(
         id: issues.id,
         identifier: issues.identifier,
         title: issues.title,
+        titleNeedsGeneration: issues.titleNeedsGeneration,
         description: issues.description,
         status: issues.status,
         workMode: issues.workMode,
@@ -20976,6 +20987,7 @@ export function heartbeatService(
               id: issueRef.id,
               identifier: issueRef.identifier,
               title: issueRef.title,
+              titleNeedsGeneration: issueContext?.titleNeedsGeneration,
               workMode: issueRef.workMode,
               conversationAgentId: issueContext?.conversationAgentId,
               description: issueRef.description,
@@ -24608,6 +24620,10 @@ export function heartbeatService(
                       }
                     },
                     enqueueWakeup,
+                    syncIssueExternalObjects: externalObjectService(db, {
+                      pluginWorkerManager: options.pluginWorkerManager,
+                      enabled: async () => (await instanceSettings.getExperimental()).enableExternalObjects === true,
+                    }).syncIssueSafely,
                     onSpawn: async (meta) => {
                       markDispatchStarted();
                       await persistRunProcessMetadata(run.id, meta);

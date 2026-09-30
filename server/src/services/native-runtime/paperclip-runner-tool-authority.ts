@@ -1,3 +1,7 @@
+import { setIssueTitle } from "../issue-title.js";
+import { externalObjectService } from "../external-objects.js";
+import { instanceSettingsService } from "../instance-settings.js";
+import { setIssueTitleSchema } from "@paperclipai/shared";
 import { authorizeInstructionCommit } from "../agent-instruction-authorization.js";
 import { executeAgentInstructionTool } from "./agent-instruction-tools.js";
 import { createReadStream } from "node:fs";
@@ -87,7 +91,7 @@ import {
 const IMPLEMENTED_OPERATIONS = new Set([
   "read_agent_instructions", "update_agent_instructions", "get_agent_instruction_history", "restore_agent_instructions",
   "search_api", "call_api", "hire_agent",
-  "get_task_context", "get_task_history", "search_tasks", "report_progress",
+  "get_task_context", "get_task_history", "search_tasks", "report_progress", "set_task_title",
   "request_human_input",
   "create_skill", "create_task", "reassign_task", "set_dependencies", "create_project", "list_project_repositories", "list_projects", "register_deliverable",
   "list_documents", "read_document", "list_document_revisions", "write_document",
@@ -120,6 +124,7 @@ type Binding = {
   readRemoteWorkspaceFile?: RemoteWorkspaceFileReader;
   currentWakeComments?: CurrentWakeCommentsBinding;
   chatAttachmentReadScope?: NativeChatAttachmentReadScope;
+  syncIssueExternalObjects?: (issueId: string) => Promise<void>;
   stopTaskForReassignment?: (target: { companyId: string; issueId: string; agentId: string; runId: string | null }) => Promise<void>;
   enqueueWakeup?: (agentId: string, options: {
     source: "assignment";
@@ -547,6 +552,7 @@ export class PaperclipRunnerToolAuthority {
       case "create_task": return this.#createTask(input,
         (await captureRunIdentity(this.db, this.binding)).context?.id ?? null);
       case "reassign_task": return this.#reassignTask(input);
+      case "set_task_title": return this.#setTaskTitle(input);
       case "set_dependencies": return this.#setDependencies(input);
       case "register_deliverable": return this.#registerDeliverable(input);
       default: throw new Error("paperclip_runner_tool_not_bound");
@@ -1246,6 +1252,25 @@ export class PaperclipRunnerToolAuthority {
     return result;
   }
 
+  async #setTaskTitle(input: Record<string, unknown>): Promise<unknown> {
+    const titleInput = setIssueTitleSchema.parse(input);
+    requiredString(titleInput.idempotencyKey);
+    // Use the shared title receipt so native and HTTP retries have the same
+    // identity and cannot overwrite a later user edit when switching surfaces.
+    const { result, publication } = await this.db.transaction(async (tx) => {
+      await this.#lockAuthorizedMutationContext(tx as unknown as Db);
+      return setIssueTitle(tx as unknown as Db, this.binding.companyId, this.binding.issueId, titleInput, {
+        actorType: "agent", actorId: this.binding.agentId, agentId: this.binding.agentId, runId: this.binding.runId,
+      });
+    });
+    if (publication) publishActivity(publication);
+    const syncExternalObjects = this.binding.syncIssueExternalObjects ?? externalObjectService(this.db, {
+      enabled: async () => (await instanceSettingsService(this.db).getExperimental()).enableExternalObjects === true,
+    }).syncIssueSafely;
+    await syncExternalObjects(this.binding.issueId);
+    return result;
+  }
+
   async #setDependencies(input: Record<string, unknown>): Promise<unknown> {
     const idempotencyKey = requiredString(input.idempotencyKey);
     if (!Array.isArray(input.blockedByTaskIds)) {
@@ -1926,6 +1951,7 @@ function redactedTask(task: typeof issues.$inferSelect) {
     companyId: task.companyId,
     identifier: task.identifier,
     title: task.title,
+    titleNeedsGeneration: task.titleNeedsGeneration,
     description: task.description,
     status: task.status,
     statusVersion: task.statusVersion,

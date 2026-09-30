@@ -1710,6 +1710,7 @@ pub(crate) fn sanitize_semantic_tool_input(
     }
     let mut checked = sanitize_bounded_display_value(input);
     let prose_fields: &[&str] = match operation_id {
+        "set_task_title" => &["title"],
         "create_task" => &["title", "description", "initialPlan"],
         "create_project" => &["name", "description"],
         "write_document" => &["title", "body", "changeSummary"],
@@ -2244,6 +2245,77 @@ fn redact_sensitive_text_values_with_context(input: &str, semantic_prose: bool) 
             ]
             .iter()
             .any(|lead| token_phrase_has_lead(lead));
+        // Maintenance prose uses a closed vocabulary, including common task
+        // artifacts and environment qualifiers. Validate the entire suffix:
+        // recognizing only the first noun could hide an opaque credential after
+        // it. Unknown words, punctuation, assignments and CLI forms still fail
+        // closed. Known credential formats also use the independent scanners.
+        let is_semantic_key_maintenance = semantic_prose
+            && key == "api key"
+            && !key_is_compound
+            && (start == 0 || bytes[start - 1].is_ascii_whitespace())
+            && whitespace_start == start + key.len()
+            && separator > whitespace_start
+            && !has_assignment_separator
+            && bytes[whitespace_start..separator]
+                .iter()
+                .all(|value| matches!(value, b' ' | b'\t'))
+            && ["rotation", "replacement", "renewal", "expiration"]
+                .iter()
+                .any(|noun| {
+                    normalized[separator..]
+                        .strip_prefix(noun)
+                        .is_some_and(|suffix| {
+                            (suffix.is_empty() || suffix.starts_with(' ') || suffix == ".")
+                                && !suffix.contains(['\n', '\r', '\t'])
+                                && suffix
+                                    .strip_suffix('.')
+                                    .unwrap_or(suffix)
+                                    .split(' ')
+                                    .filter(|word| !word.is_empty())
+                                    .all(|word| {
+                                        matches!(
+                                            word,
+                                            "a" | "an"
+                                                | "the"
+                                                | "for"
+                                                | "in"
+                                                | "of"
+                                                | "and"
+                                                | "with"
+                                                | "checklist"
+                                                | "handover"
+                                                | "plan"
+                                                | "guide"
+                                                | "schedule"
+                                                | "steps"
+                                                | "staging"
+                                                | "production"
+                                                | "development"
+                                                | "test"
+                                                | "expired"
+                                                | "new"
+                                                | "old"
+                                                | "safe"
+                                                | "secure"
+                                                | "short"
+                                                | "internal"
+                                                | "teammate"
+                                                | "routine"
+                                                | "maintenance"
+                                                | "service"
+                                                | "access"
+                                                | "api"
+                                                | "key"
+                                                | "keys"
+                                                | "rotation"
+                                                | "replacement"
+                                                | "renewal"
+                                                | "expiration"
+                                        )
+                                    })
+                        })
+                });
         let is_benign_token_noun_phrase = key == "token"
             && (!key_is_compound || has_hyphenated_count_lead)
             && whitespace_start == start + key.len()
@@ -2307,7 +2379,8 @@ fn redact_sensitive_text_values_with_context(input: &str, semantic_prose: bool) 
         let has_whitespace_separator = separator > whitespace_start
             && (key != "authorization" || key_is_compound || has_authorization_scheme)
             && !is_benign_token_noun_phrase
-            && !is_semantic_token_reference;
+            && !is_semantic_token_reference
+            && !is_semantic_key_maintenance;
         if !has_assignment_separator && !has_whitespace_separator {
             continue;
         }
@@ -3459,6 +3532,86 @@ mod tests {
         assert!(
             sanitize_semantic_tool_input("write_document", &json!({"body": document})).is_err()
         );
+    }
+
+    #[test]
+    fn task_title_preserves_maintenance_prose_but_rejects_credentials() {
+        for title in [
+            "API key rotation checklist",
+            "Plan API key replacement",
+            "Document API key renewal",
+            "Explain API key expiration",
+            "API key rotation schedule",
+            "API key replacement for staging",
+            "API key rotation checklist for an expired key",
+        ] {
+            let input = json!({"title": title, "onlyIfProvisional": true, "idempotencyKey": "initial-title"});
+            assert_eq!(
+                sanitize_semantic_tool_input("set_task_title", &input).unwrap(),
+                input
+            );
+            assert_ne!(
+                redact_text(title),
+                title,
+                "diagnostics retain strict redaction"
+            );
+        }
+        for title in [
+            "API key opaque-credential",
+            "API key=rotation",
+            "API key: rotation",
+            "API key \"rotation\"",
+            "--api key rotation",
+            "OPENAI_API_KEY rotation",
+            "API key rotation-secret",
+            "API key rotation opaque-credential",
+            "API key replacement ABCDEFG123456789",
+            "API key renewal checklist opaque-credential",
+            "API key expiration\nopaque-credential",
+            "API key rotation sk-proj-secretvalue123456",
+            "API key rotation Authorization: Bearer opaque-credential",
+        ] {
+            assert!(
+                sanitize_semantic_tool_input("set_task_title", &json!({"title": title})).is_err(),
+                "{title}"
+            );
+        }
+    }
+
+    #[test]
+    fn maintenance_prose_rejects_opaque_suffixes_in_every_declared_field() {
+        for (operation, field) in [
+            ("create_task", "title"),
+            ("create_task", "description"),
+            ("create_task", "initialPlan"),
+            ("create_project", "name"),
+            ("create_project", "description"),
+            ("write_document", "title"),
+            ("write_document", "body"),
+            ("write_document", "changeSummary"),
+            ("update_agent_instructions", "content"),
+        ] {
+            for text in [
+                "API key rotation",
+                "API key rotation schedule",
+                "API key replacement for staging",
+            ] {
+                let input = json!({field: text});
+                assert_eq!(
+                    sanitize_semantic_tool_input(operation, &input).unwrap(),
+                    input
+                );
+            }
+            for text in [
+                "API key rotation opaque-credential",
+                "API key renewal checklist ABCDEFG123456789",
+            ] {
+                assert!(
+                    sanitize_semantic_tool_input(operation, &json!({field: text})).is_err(),
+                    "{operation}.{field}: {text}"
+                );
+            }
+        }
     }
 
     #[test]
