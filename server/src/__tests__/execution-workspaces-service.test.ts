@@ -659,6 +659,34 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
     }
   });
 
+  it("retries a failed reaper inspection after backoff and can archive the workspace", async () => {
+    const seeded = await seedTerminalWorkspace({ mergedPr: true });
+    let clockMs = Date.now() + 1_000;
+    const service = executionWorkspaceService(db, {
+      now: () => new Date(clockMs),
+      workspaceReaperCooldownDays: 0,
+      resolvePullRequestDetails: async (companyId, reference) =>
+        pullRequestDetailsByKey.get(`${companyId}:${reference.number}`) ?? { state: "unknown" },
+    });
+    const originalRun = workspaceGitOperationScheduler.run.bind(workspaceGitOperationScheduler);
+    const scan = vi.spyOn(workspaceGitOperationScheduler, "run")
+      .mockRejectedValueOnce(new Error("Git status temporarily unavailable"))
+      .mockImplementation(originalRun);
+    try {
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 0, skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(1);
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 0, skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(1);
+      await expect(fs.access(seeded.worktreePath)).resolves.toBeUndefined();
+      clockMs += TERMINAL_WORKSPACE_REAPER_GIT_BACKOFF_MS;
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 1 });
+      // The retry and the final fresh pre-deletion check both inspect Git.
+      expect(scan).toHaveBeenCalledTimes(3);
+    } finally {
+      scan.mockRestore();
+    }
+  });
+
   it.each(["workspace", "lifecycle", "issue"] as const)(
     "invalidates reaper Git backoff when %s state changes",
     async (change) => {
