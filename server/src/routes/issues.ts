@@ -1,3 +1,4 @@
+import { resolveConfirmationFromComment } from "../services/confirmation-comment-resolution.js";
 import { createIssueReadTiming } from "../services/issue-read-timing.js";
 import { isNativeWorkspaceExportRepairCause } from "@paperclipai/shared";
 import { retryNativeWorkspaceExport } from "../services/native-runtime/native-workspace-export-retry.js";
@@ -63,6 +64,7 @@ import {
 import {
   addIssueCommentSchema,
   acceptIssueThreadInteractionSchema,
+  resolveConfirmationFromCommentSchema,
   attachmentArtifactWorkProductMetadataSchema,
   cancelIssueThreadInteractionSchema,
   skipIssueThreadInteractionSchema,
@@ -15886,6 +15888,31 @@ export function issueRoutes(
       }
 
       res.status(201).json(interaction);
+    },
+  );
+
+  router.post(
+    "/issues/:id/interactions/:interactionId/resolve-from-comment",
+    validate(resolveConfirmationFromCommentSchema),
+    async (req, res) => {
+      const issue = await getAccessibleResource(req, res, svc.getById(req.params.id as string), "Issue not found");
+      if (!issue) return;
+      if (req.actor.type !== "agent") throw forbidden("Conversational resolution requires the responding agent run");
+      const authorization = await getIssueThreadInteractionResolutionAuthorization(
+        req, res, issue, req.params.interactionId as string,
+      );
+      if (!authorization) return;
+      const actor = getActorInfo(req);
+      const result = await resolveConfirmationFromComment(db, {
+        companyId: issue.companyId, issueId: issue.id,
+        interactionId: req.params.interactionId as string,
+        input: req.body,
+        actor: { agentId: actor.agentId!, runId: actor.runId!,
+          resolverPolicyRestriction: authorization.resolutionAuthorization.resolverPolicyRestriction },
+      });
+      // The authenticated responding run already owns this turn. Do not enqueue
+      // another self-wake or restart its session after it records the answer.
+      res.json(result);
     },
   );
 

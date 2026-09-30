@@ -375,6 +375,10 @@ export const runnerApiReference: Record<string, { section: string; description?:
       }
     ]
   },
+  "POST /api/issues/{}/interactions/{}/resolve-from-comment": {
+    "section": "Issues (Tasks)",
+    "description": "Resolve a confirmation from the latest user reply; body: commentId, decision (accept/reject), selectedOptionIds for checkbox acceptance, optional reason"
+  },
   "POST /api/issues/{}/interactions/{}/accept": {
     "section": "Issues (Tasks)",
     "description": "Accept suggested tasks or confirmation (body: `selectedClientKeys` for `suggest_tasks`; `selectedOptionIds` for `request_checkbox_confirmation`)",

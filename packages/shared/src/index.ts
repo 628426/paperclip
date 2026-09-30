@@ -2002,6 +2002,8 @@ export {
   requestItemVerdictsResultSchema,
   createIssueThreadInteractionSchema,
   acceptIssueThreadInteractionSchema,
+  resolveConfirmationFromCommentSchema,
+  type ResolveConfirmationFromComment,
   rejectIssueThreadInteractionSchema,
   cancelIssueThreadInteractionSchema,
   skipIssueThreadInteractionSchema,

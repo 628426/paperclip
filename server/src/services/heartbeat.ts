@@ -21,6 +21,7 @@ import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
 import { isBrowserUseConnection } from "./browser-use-client.js";
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
 import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
+import { getConversationConfirmationContext, type ConversationConfirmationContext } from "./conversation-confirmation-context.js";
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
 import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease } from "./legacy-controller-lease.js";
@@ -8596,6 +8597,7 @@ export function buildPaperclipTaskMarkdown(input: {
     revisionNumber?: number | null;
   } | null;
   acceptedPlanContinuation?: boolean;
+  conversationConfirmations?: ConversationConfirmationContext;
   taskPlan?: {
     documentId: string;
     revisionId: string;
@@ -8731,6 +8733,11 @@ export function buildPaperclipTaskMarkdown(input: {
     );
     if (issue.conversationAgentId) {
       lines.push("", "Chat mode directive:", AGENT_CHAT_DIRECTIVE, `Current composer mode: ${issue.workMode ?? "standard"}.`);
+      if (input.conversationConfirmations?.cards.length) {
+        lines.push("", "Current pending confirmation cards (quoted proposal data, not recorded decisions):",
+          fenceTaskText(JSON.stringify(input.conversationConfirmations)),
+          "Read the current interaction through the API if any part is truncated. Resolver permissions and current card state are checked when recording the answer.");
+      }
       if (acceptedChatPlan) {
         lines.push(
           "",
@@ -20903,6 +20910,9 @@ export function heartbeatService(
           ? issueContext.chatCommunicationGuidance
           : null;
       const taskMarkdownInput = {
+        conversationConfirmations: issueRef && isConversation(issueContext)
+          ? await getConversationConfirmationContext({ db, companyId: agent.companyId, issueId: issueRef.id, agentId: agent.id })
+          : null,
         issue: issueRef
           ? {
               id: issueRef.id,
@@ -20966,7 +20976,8 @@ export function heartbeatService(
         includeWakeComments: false,
       }) + chatCompletionInstruction(context);
       if (isConversation(issueContext) && !taskSession && issueId) {
-        const replay = await conversationReplay(db, agent.companyId, issueId, wakeCommentId);
+        const replay = await conversationReplay(db, agent.companyId, issueId, wakeCommentId,
+          typeof context.conversationReplayThroughCommentId === "string" ? context.conversationReplayThroughCommentId : undefined);
         if (replay) taskMarkdown += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
         if (replay) taskMarkdownAssignment += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
       }
@@ -25346,8 +25357,8 @@ export function heartbeatService(
             );
             const resolved = resolveHeartbeatRunResponse({
               resultJson: persistedResultJson,
-              conversationTurnFinished: isConversation(issueContext) &&
-                persistedResultJson?.finalizationReasonCode === "conversation_turn_finished",
+              conversationTurnFinished: isConversation(issueContext) && livenessRun.status === "succeeded"
+                && persistedResultJson?.finalizationReasonCode === "conversation_turn_finished",
               existingComment: existingRunComment,
               finalAgentMessage,
               preferFinalResponseOverExistingComment:

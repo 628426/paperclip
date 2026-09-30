@@ -58,6 +58,7 @@ interaction_kind: ("suggest_tasks" | "ask_user_questions" | "request_confirmatio
 used_deprecated_resolver_policy_alias: boolean
 }
 
+/** Emit only after the complete resolution transaction commits, including response provenance. */
 export interface PaperclipInteractionResolvedDimensions {
 interaction_kind: ("suggest_tasks" | "ask_user_questions" | "request_confirmation" | "request_checkbox_confirmation" | "request_item_verdicts" | "other")
 status: ("accepted" | "rejected" | "answered" | "cancelled" | "expired" | "failed" | "other")

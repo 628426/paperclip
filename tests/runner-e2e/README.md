@@ -33,6 +33,50 @@ full traces and checks that Vite module loads do not create worker fetches or
 leave the page empty. This isolates browser loading; it does not create a
 Paperclip task, run an agent, or replace a Product E2E result.
 
+## Conversational confirmation replies (explicit only)
+
+`--suite confirmation-replies` selects ten local native Claude/Codex cells:
+conversational single-task approval, saved-plan approval, rejection, card-click
+acceptance as a control, and ambiguous approval with two independent pending
+proposals. The onboarding cells use the production wizard, runtime switch and
+persona. The ambiguity fixture creates ordinary board cards through the public
+API, sends "Yes, go ahead" through the browser, requires both to stay pending
+with a clarification reply and no execution, then approves only one and rejects
+the other through separate browser messages.
+The board-created cards also check that fresh and resumed chat turns receive
+the current confirmation identities, including cards outside provider memory.
+Only ordinary, current-session pending confirmations enter this bounded context;
+the resolution endpoint still rechecks live state and permissions.
+Clarification may be a fresh chat reply or a source-bound question card, including
+a native question-set description and its proposal choices. A generic question
+about tone or deadlines is not evidence that the ambiguous approval was clarified.
+Unauthorized state changes fail immediately. Clarification wording is graded
+after capturing later decisions and reload receipts, so a new wording variant
+does not discard the rest of the paid journey's evidence. A wording failure
+still fails the case; any later offline regrade must be reported separately.
+
+The independent oracle requires the exact original card to hold the decision,
+source user-comment ID and resolving agent/run. Acceptance must precede child
+creation. Expiring/hiding the card, reporting acceptance only in prose, or
+finishing work with a pending card fails. Browser reload verifies the displayed
+accepted/rejected receipt. Existing card-click behavior remains unchanged.
+Accepted onboarding cases also use the 120-second completion/result-access
+probe and retain its semantic evidence. Inspect final prose for obsolete
+requests to clear the approval card; mechanical success alone does not establish
+prose quality. Provider-scoped Claude jobs require separate retained-probe
+judging, as described below.
+
+No model-generated outcome or direct database mutation supplies a pass. Source
+SHA, definition hash, model, run evidence, screenshots, failures, cleanup and
+billing use the existing report pipeline. This suite is opt-in and excluded
+from `--all`; it does not qualify governed tool approvals, human-only policies,
+question-form extraction, or remote execution.
+
+```sh
+pnpm test:e2e:runner -- --list --suite confirmation-replies
+pnpm test:e2e:runner -- --suite confirmation-replies
+```
+
 ## Completion-update probes (explicit only)
 
 `--suite completion-updates` selects ten local Product E2E cells: native Codex
@@ -1318,6 +1362,7 @@ The separate Runner Evals `extended-harnesses` campaign lives in the private
 `paperclip-evals` repository and grades semantic protocol behavior against the
 mock control plane. Neither suite substitutes for the other.
 
+The explicit-only `confirmation-replies` suite also includes `unanswered-question-return` for native Claude and Codex (three provider turns). The browser asks a saved color question, dismisses and reopens the fresh form, sends an unrelated message, verifies the reply while the original stays pending, reloads, reopens the history entry, submits Blue, and verifies the saved answer plus a later agent acknowledgement. After dismissing the fresh form and before and after reload, the history card is the only pending-question reminder; the composer has no duplicate pending-input badge. It checks that no tasks were created. Unique, UI-ready screenshots show each checkpoint; individual checks are included in the report. This is a bounded mechanical workflow check, not broader semantic answer-quality qualification.
 ## Direct blocker guidance
 
 `blocker-guidance` is an explicit-only Product E2E suite for the production

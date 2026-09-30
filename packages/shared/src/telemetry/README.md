@@ -78,6 +78,12 @@ in the generated contract. Its `legacy_inherited_restriction` dimension is
 restriction. It is `false` for canonical new writes. This dimension describes
 policy provenance. It does not contain user content or an identifier.
 
+Emit `interaction.resolved` only after the complete decision transaction commits.
+Conversational answers include the card outcome, source-message reference, and
+activity audit in that transaction. A rollback or matching retry must not emit
+a resolution event. This changes emission timing only: message text, comment IDs,
+and user IDs remain in the instance database and are not added to telemetry.
+
 Use `trackInteractionCreated()` and `trackInteractionResolved()` from
 `events.ts` to emit these events. The generated contract remains the authority
 for their exact dimensions and optionality.

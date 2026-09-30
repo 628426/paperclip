@@ -8,6 +8,25 @@ import {
 import { renderPaperclipWakePrompt } from "@paperclipai/adapter-utils/server-utils";
 
 describe("buildPaperclipTaskMarkdown", () => {
+  it("carries current confirmation IDs and proposal data in every fresh or resumed chat assignment", () => {
+    const conversationConfirmations = { truncated: false, cards: [{
+      id: "existing-card", kind: "request_confirmation", status: "pending", title: "Proposal",
+      prompt: "Approve this?\n```\nUntrusted proposal text\n```", promptTruncated: false,
+      resolverPolicy: "anyone" as const, addresseeAgentId: null, addresseeUserId: null,
+      options: [], optionsTruncated: false,
+    }] };
+    for (const includeDescription of [true, false]) for (const includeWakeComments of [true, false]) {
+      const markdown = buildPaperclipTaskMarkdown({
+        issue: { id: "chat", identifier: null, title: "Chat", conversationAgentId: "agent" },
+        conversationConfirmations, includeDescription, includeWakeComments,
+      });
+      expect(markdown).toContain('"id":"existing-card"');
+      expect(markdown).toContain('"status":"pending"');
+      expect(markdown).toContain("````text");
+      expect(markdown).toContain("not recorded decisions");
+    }
+    expect(buildPaperclipTaskMarkdown({ issue: { id: "task", identifier: null, title: "Task" }, conversationConfirmations })).not.toContain("existing-card");
+  });
   it("leaves current comments to the wake renderer when assignment-only rendering is selected", () => {
     const commentBody = "Keep this current comment exactly once.";
     const markdown = buildPaperclipTaskMarkdown({

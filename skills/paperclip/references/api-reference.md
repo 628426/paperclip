@@ -1083,6 +1083,12 @@ Rules:
 - A pending interaction is an explicit waiting path. Before ending the heartbeat, update the source issue into a visible waiting posture, normally `in_review`, and leave a comment that names the response needed and the effective audience.
 - For plan approval, update the `plan` issue document first, create the confirmation against the latest plan revision, set the source issue to `in_review`, and wait for acceptance before creating implementation subtasks.
 
+### Conversational confirmation answers
+
+To record a user's conversational answer, an eligible agent responding on this task may POST `/api/issues/{issueId}/interactions/{interactionId}/resolve-from-comment` with `{ "commentId": "<latest-user-message-id>", "decision": "accept" }` (or `"reject"` and `reason`). Native runners use `call_api`. Checkbox acceptance must include explicit `selectedOptionIds`; defaults alone are not consent. The result is `{ interaction, deduplicated }`, with the user message retained in `interaction.result.commentId` and the activity audit. Resolver attribution remains the responding agent/run. This does not widen permissions: `human_only`, independent-review restrictions, named addressees, and governed-action controls still apply. Only confirmation and checkbox cards are supported, not forms, secret/tool approvals, or connection authorizations.
+
+Read current cards and comments before interpreting the reply. Resolve the specific proposal before performing the approved work. Ask for clarification when a reply is ambiguous among multiple proposals or checkbox choices; do not approve all of them. Requested revisions are not acceptance. If the write is interrupted, retry the same card/message/decision: matching retries return `deduplicated: true` without another wake. Conflicting, stale, deleted, superseded, wrong-user, and previous-session answers fail. Do not ask the user to clear a card after their decision is saved.
+
 ### Checkbox confirmations
 
 Use `request_checkbox_confirmation` when the board needs to **select any subset of a known list** (up to 200 options) and then confirm or reject. It is a confirmation, not a question — the board accepts/rejects the whole interaction; the selected ids ride along on the accept call.
@@ -1420,6 +1426,7 @@ Terminal states: `done`, `cancelled`
 | DELETE | `/api/issues/:issueId/inbox-archive` | Reverse inbox archive; same target and policy rules                                    |
 | GET    | `/api/issues/:issueId/interactions` | List issue-thread interactions                                                          |
 | POST   | `/api/issues/:issueId/interactions` | Create issue-thread interaction (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, `request_item_verdicts`) |
+| POST | `/api/issues/:issueId/interactions/:interactionId/resolve-from-comment` | Resolve a confirmation from the latest user reply; body: commentId, decision (accept/reject), selectedOptionIds for checkbox acceptance, optional reason |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/accept` | Accept suggested tasks or confirmation (body: `selectedClientKeys` for `suggest_tasks`; `selectedOptionIds` for `request_checkbox_confirmation`) |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/reject` | Reject suggested tasks or confirmation                                       |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/respond` | Respond to structured questions                                             |

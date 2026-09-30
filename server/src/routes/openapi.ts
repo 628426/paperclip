@@ -173,6 +173,7 @@ import {
   createIssueThreadInteractionSchema,
   createChildIssueSchema,
   acceptIssueThreadInteractionSchema,
+  resolveConfirmationFromCommentSchema,
   rejectIssueThreadInteractionSchema,
   respondIssueThreadInteractionSchema,
   skipIssueThreadInteractionSchema,
@@ -7361,6 +7362,20 @@ registry.registerPath({
     body: jsonBody(createIssueThreadInteractionSchema),
   },
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/issues/{id}/interactions/{interactionId}/resolve-from-comment",
+  tags: ["issues"],
+  summary: "Record a user's conversational confirmation answer",
+  description: "An eligible active agent run resolves a confirmation on its own task using the latest user comment. Resolver permissions, target staleness and conversation reset boundaries remain enforced. Matching retries are idempotent. No new wake is scheduled.",
+  request: {
+    params: z.object({ id: z.string(), interactionId: z.string() }),
+    body: jsonBody(resolveConfirmationFromCommentSchema),
+  },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound,
+    409: { description: "Stale or conflicting decision" }, 422: { description: "Invalid answer evidence or selection" } },
 });
 
 registry.registerPath({

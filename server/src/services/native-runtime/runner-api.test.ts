@@ -58,6 +58,15 @@ describe("bounded response capture receipts", () => {
 });
 
 describe("runner API catalog", () => {
+  it("advertises the conversational recording exception without general approval authority", () => {
+    const operationId = "POST /api/issues/{id}/interactions/{interactionId}/resolve-from-comment";
+    const operation = runnerApiOperation(operationId);
+    expect(operation.allowedModes).toContain("planning");
+    expect(operation.allowedModes).not.toContain("ask");
+    expect(operation.runnerRestrictions?.join(" ")).toContain("conversational confirmation");
+    expect(runnerApiOperation("POST /api/issues/{id}/interactions/{interactionId}/accept").callPolicy).toBe("restricted");
+    expect(runnerApiOperation(createProject).allowedModes).not.toContain("planning");
+  });
   it("accounts for unique operations with resolved request contracts", () => {
     const catalog = runnerApiCatalog();
     expect(catalog.length).toBeGreaterThan(400);

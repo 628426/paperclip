@@ -2039,6 +2039,23 @@ export type AcceptIssueThreadInteraction = z.infer<
   typeof acceptIssueThreadInteractionSchema
 >;
 
+/** Records an agent's interpretation of a real user reply without widening resolver permissions. */
+export const resolveConfirmationFromCommentSchema = z.object({
+  commentId: z.string().guid(),
+  decision: z.enum(["accept", "reject"]),
+  selectedOptionIds: z.array(z.string().trim().min(1).max(120))
+    .max(REQUEST_CHECKBOX_CONFIRMATION_OPTION_LIMIT).optional(),
+  reason: z.string().trim().max(4000).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.decision === "reject" && value.selectedOptionIds !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["selectedOptionIds"], message: "Selections apply only to acceptance" });
+  }
+  if (value.selectedOptionIds && new Set(value.selectedOptionIds).size !== value.selectedOptionIds.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["selectedOptionIds"], message: "Selections must be unique" });
+  }
+});
+export type ResolveConfirmationFromComment = z.infer<typeof resolveConfirmationFromCommentSchema>;
+
 export const rejectIssueThreadInteractionSchema = z.object({
   reason: z.string().trim().max(4000).optional(),
 });

@@ -1,5 +1,5 @@
 import { gitFinalizationEvidence, gitStreamingEvidence, setupGitStreamingWorkspace } from "./daytona-git-streaming.js";
-import { completionQualityControls, completionQualityStatus, judgeCompletionQuality, reserveCompletionQuality, type CompletionQualityRecord } from "./completion-quality.js";
+import { runsCompletionUpdateProbe, completionQualityControls, completionQualityStatus, judgeCompletionQuality, reserveCompletionQuality, type CompletionQualityRecord } from "./completion-quality.js";
 import { completionDelivery, type CompletionObservation } from "./completion-updates.js";
 import { runInstructionPersistenceFlow } from "./instruction-persistence.js";
 import { gradeApiResponsePaging, readResponseProof, responseEvidenceDescription } from "./api-response-reading.js";
@@ -567,7 +567,7 @@ for (const execution of executions) {
     const completionQuality: CompletionQualityRecord[] = [];
     const completionEvidence = async (name: string, data: unknown) => {
       await writeSanitizedJson(snapshotsDir, name, data, secrets);
-      if (execution.suite.id !== "completion-updates" || !name.endsWith("completion-update.json")) return;
+      if (!["completion-updates", "confirmation-replies"].includes(execution.suite.id) || !name.endsWith("completion-update.json")) return;
       const probe = data as { observation?: CompletionObservation };
       if (!probe.observation || !completionDelivery(probe.observation).checks.every(c => c.passed)) return;
       if (!credentials.OPENAI_API_KEY) {
@@ -959,9 +959,10 @@ for (const execution of executions) {
           observe: (chatIssue, chatRuns) => { issue = chatIssue; selectedRuns = chatRuns; },
           capture: captureScreenshot,
           evidence: completionEvidence,
+          check: (id, passed, detail) => matcherResults.push({ matcher: { kind: "json_path", path: `chat.${id}`, expected: true }, passed, detail }),
         });
         issue = chat.issue; selectedRuns = chat.runs;
-        matcherResults = [{ matcher: { kind: "issue_status", expected: "in_review" }, passed: true, detail: "Chat workflow and durable handoff/session assertions passed" }];
+        if (matcherResults.length === 0) matcherResults = [{ matcher: { kind: "issue_status", expected: "in_review" }, passed: true, detail: "Chat workflow and durable handoff/session assertions passed" }];
       } else if (execution.task.flow === "first_task") {
         const firstTask = await runFirstTaskFlow({
           page, api, fixtures, execution, nonce, secrets,
@@ -2588,7 +2589,7 @@ for (const execution of executions) {
         );
       }
       }
-      if (execution.suite.id === "completion-updates" && credentials.OPENAI_API_KEY) {
+      if (runsCompletionUpdateProbe(execution) && credentials.OPENAI_API_KEY) {
         const qualification = completionQualityStatus(completionQuality);
         if (qualification === "unqualified") {
           failureClassOverride = "permanent_infrastructure";

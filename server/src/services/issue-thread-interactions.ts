@@ -186,6 +186,9 @@ export type IssueThreadInteractionServiceOptions = {
 
 type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type InteractionResolutionMutationOptions = {
+  /** Confirmation accept/reject nested in an outer transaction must defer these
+   * effects and flush them with the root database only after its commit. */
+  deferConfirmationCommitEffects?: (effect: (committedDb: Db) => Promise<void>) => void;
   beforeResolveInTransaction?: (tx: DbTransaction) => Promise<void>;
   afterResolveInTransaction?: (
     tx: DbTransaction,
@@ -2359,9 +2362,12 @@ export function issueThreadInteractionService(
         continuationIssue,
       };
     });
-    for (const publication of postCommitActivityPublications)
-      publishActivity(publication);
-    await emitInteractionResolvedTelemetry(db, result.interaction);
+    const publish = async (committedDb: Db) => {
+      for (const publication of postCommitActivityPublications) publishActivity(publication);
+      await emitInteractionResolvedTelemetry(committedDb, result.interaction);
+    };
+    if (args.mutationOptions?.deferConfirmationCommitEffects) args.mutationOptions.deferConfirmationCommitEffects(publish);
+    else await publish(db);
     return result;
   }
 
@@ -2537,7 +2543,9 @@ export function issueThreadInteractionService(
     });
 
     const rejected = hydrateInteraction(updated);
-    await emitInteractionResolvedTelemetry(db, rejected);
+    const publish = (committedDb: Db) => emitInteractionResolvedTelemetry(committedDb, rejected);
+    if (args.mutationOptions?.deferConfirmationCommitEffects) args.mutationOptions.deferConfirmationCommitEffects(publish);
+    else await publish(db);
     return rejected;
   }
 
@@ -3506,7 +3514,7 @@ export function issueThreadInteractionService(
         const result = await db.transaction(async (tx) => {
           await assertInteractionRunWriteAllowed(tx as unknown as Db, issue, actor);
           const [issueRow] = await tx
-            .select({ status: issues.status })
+            .select({ status: issues.status, conversationAgentId: issues.conversationAgentId, conversationUserId: issues.conversationUserId })
             .from(issues)
             .where(
               and(
@@ -3597,16 +3605,15 @@ export function issueThreadInteractionService(
 
           // An agent replacing its own still-pending card supersedes the older
           // one so the thread never accumulates stale sibling cards. This covers
-          // request_confirmation drafts and ask_user_questions (PAP-437: probe
-          // question cards that agents never withdrew). Each kind keeps its own
-          // result shape. Scoped strictly to the same agent + issue + kind, so
-          // other agents' or other kinds' pending cards are untouched.
+          // request_confirmation drafts and ordinary task questions. Agent Chat
+          // questions remain answerable in history even when another is asked.
+          // Scoped to the same agent + issue + kind; other actors are untouched.
           const canSupersedeSiblingCards =
             options.supersedePendingSiblingInteractions !== false &&
             ((data.kind === "request_confirmation" &&
               data.payload.toolAction === undefined &&
               data.payload.secretProposal === undefined) ||
-              data.kind === "ask_user_questions");
+              (data.kind === "ask_user_questions" && (!issueRow.conversationAgentId || !issueRow.conversationUserId)));
           if (!actor.agentId || !canSupersedeSiblingCards) {
             await enqueueIssueInteractionChatPublications(
               tx as unknown as Db,
@@ -3638,6 +3645,7 @@ export function issueThreadInteractionService(
                 eq(issueThreadInteractions.createdByAgentId, actor.agentId),
                 eq(issueThreadInteractions.status, "pending"),
                 ne(issueThreadInteractions.id, row.id),
+
               ),
             )
             .returning();
@@ -4226,6 +4234,9 @@ export function issueThreadInteractionService(
       // machine; createdByRunId can. Only genuine human comments (no run context) supersede.
       if (comment.createdByRunId) return [];
 
+      const [scope] = await db.select({ conversationAgentId: issues.conversationAgentId, conversationUserId: issues.conversationUserId })
+        .from(issues).where(and(eq(issues.id, issue.id), eq(issues.companyId, issue.companyId)));
+
       const rows = await db
         .select()
         .from(issueThreadInteractions)
@@ -4241,6 +4252,7 @@ export function issueThreadInteractionService(
         );
 
       const superseded = rows.filter((row) => {
+        if (row.kind === "ask_user_questions" && scope?.conversationAgentId && scope.conversationUserId) return false;
         if (!isUserCommentSupersedableKind(row.kind)) return false;
         const interaction = hydrateInteraction(
           row,
