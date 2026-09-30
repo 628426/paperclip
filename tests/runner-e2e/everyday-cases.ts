@@ -32,6 +32,9 @@ export const SLUGIFY_REVISION = `Add an optional --separator argument that accep
 export const LATE_REQUIREMENT = `Also support --max-length as a positive integer. Truncate the final slug to that length, then remove any trailing separator. In particular, input "  Queue--Ready!!  " with --max-length 7 must print "queue-r". Preserve the default behavior.`;
 
 const definitions = [
+  ["provider-decline", "Decline external providers", "Connect HubSpot so you can read my recent contacts. If I choose None for now, explain that you could not retrieve the contacts and finish without connecting.", 2],
+  ["provider-second", "Choose and reuse the second external provider", "Connect HubSpot and read my recent contacts. Report the contact names and verification code returned by the service.", 2],
+  ["provider-native", "Prefer a built-in connection over external providers", "Connect Jira so you can read my recent issues. If I choose Not now, explain that you could not retrieve the issues and finish without connecting.", 2],
   [
     "build-revise",
     "Build, download, and revise a project",
@@ -43,6 +46,12 @@ const definitions = [
     "Delegate implementation and preserve late feedback",
     `Have Riley Builder implement the following as one child task. You review the downloaded result when it is ready. Keep implementation with Riley and post a progress note linking the child while work is underway. ${SLUGIFY_REQUIREMENTS}`,
     4,
+  ],
+  [
+    "agent-review-handoff",
+    "Delegate work through an agent review handoff",
+    `Have Riley Builder implement the following as one child task. The child must keep its original Riley assignee throughout. Before Riley finishes, require a native needs_review report with exactly one attention request: kind review, ownerClass agent, targetAgentId set to your exact lead agent id, and a summary naming you as the reviewer. The child must remain in_review while waiting. When the durable review wake arrives, inspect the child task context, approve the review through the native resolve_review tool with decision accept, then finish the parent task. Do not patch the child status, reassign the child, self-approve the child from the parent run, or bypass the review interaction. ${SLUGIFY_REQUIREMENTS}`,
+    3,
   ],
   [
     "hire-reuse",
@@ -104,3 +113,8 @@ export const everydayTasks: readonly RunnerTaskFixture[] = definitions.map(
     buildMatchers: () => [], // The workflow records independent artifact and lifecycle checks.
   }),
 );
+
+/** Only these stories execute downloaded Python ZIPs in the pinned oracle. */
+export function requiresEverydayArtifactOracle(caseId: string): boolean {
+  return ["build-revise", "delegate-feedback", "agent-review-handoff", "hire-reuse", "recover-controller", "stop-redirect"].includes(caseId);
+}

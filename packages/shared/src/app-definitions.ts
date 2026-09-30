@@ -6,8 +6,12 @@ import type { ToolConnectionOwnership } from "./types/tool-access.js";
 export const CONNECTABLE_APP_SLUGS = new Set([
   "anthropic", "openai", "openrouter", "xai",
   "agentmail",
+  "browser-use-cloud",
+  "cognee",
   ...SELF_SERVE_MCP_CANDIDATES.map((entry) => entry.slug),
   "zapier",
+  "arcade",
+  "executor",
   "slack",
   "notion",
   "railway",
@@ -48,7 +52,6 @@ export const APP_STORE_HIDDEN_SLUGS = new Set([
   "brex",
   "candid",
   "coda",
-  "composio",
   "context7",
   "egnyte",
   "embat",
@@ -137,13 +140,11 @@ export function getRecommendedConnectionMethod(
     || method.oauthStrategy === "paperclip_id_connector"
   );
 
-  // When a managed pilot advertises only read access, defaulting to a
-  // customer-owned write method would turn the available one-click path into
-  // an OAuth client setup form. Capability-specific callers pass only the
-  // selected group, so explicit write/draft choices keep their own fallback.
+  // Prefer the permissions needed for agent work, then the simplest sign-in.
+  // Explicit read-only selections pass their own capability group here.
   return recommendedCapability(managedMethods)
-    ?? managedMethods[0]
     ?? recommendedCapability(methods)
+    ?? managedMethods[0]
     ?? methods[0]
     ?? null;
 }
@@ -214,8 +215,16 @@ export function appAcceptsCustomerOAuthClient(app: AppDefinition | null | undefi
   return Boolean(app && getAvailableConnectionMethods(app).some(connectionMethodAcceptsCustomerOAuthClient));
 }
 
-export function credentialConfigPath(field: FieldDef): string {
+export function credentialConfigPath(field: FieldDef, method?: ConnectionMethodDef | null): string {
+  if (method?.transport === "local_stdio" && method.keyPlacement?.location === "env") return `env.${field.key}`;
   return `credentials.${field.key}`;
+}
+
+/** Older credential references used bare names; current references use paths. */
+export function connectionCredentialConfigPath(ref: { name: string }): string {
+  return /^(credentials|headers|oauth|remote)\./.test(ref.name)
+    ? ref.name
+    : `credentials.${ref.name}`;
 }
 
 export function resolveConnectionMethodServerUrl(

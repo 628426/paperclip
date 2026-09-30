@@ -78,8 +78,12 @@ export function sidebarBadgeRoutes(db: Db) {
           .then(buildDismissedAtByKey)
         : new Map<string, number>();
 
+    // Company health alerts belong in All, not the personal inbox badge.
     const [badges, unreadTouchedIssues] = await Promise.all([
       svc.get(companyId, {
+        currentUserId: req.actor.type === "board"
+          ? req.actor.userId ?? null
+          : req.actor.onBehalfOfUserId ?? null,
         dismissals: dismissedAtByKey,
         joinRequests: visibleJoinRequests,
       }),
