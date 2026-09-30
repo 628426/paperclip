@@ -246,6 +246,16 @@ runner instance, PID, and process-start identity. Each turn is bounded to ten
 minutes, the cell to thirty minutes, and cleanup explicitly deletes the
 sandbox rather than waiting for Daytona's idle timeout.
 
+`daytona-journal-continuity` is one explicit-only native Codex cell. Select
+`daytona-journal-continuity.runner-codex.daytona.large-journal-three-turn`.
+It reuses the three-turn warm workflow with 240 separate ordinary execution-tool calls, each printing a bounded 65 KB
+synthetic sample through the real provider. Before the first browser follow-up,
+a read-only controller journal oracle requires the exact completed run's journal
+to exceed two MiB. Only byte and call counts enter evidence. No runner state or database
+is injected or modified. The usual workspace, sandbox, provider, process,
+three-run, screenshot, timeout, billing, and cleanup assertions remain required;
+`--all` excludes this stress case.
+
 `daytona-git-streaming` is an explicit-only native Codex Daytona cell for
 large Git filename snapshots. Run
 `pnpm test:e2e:runner -- --id daytona-git-streaming.runner-codex.daytona.large-path-three-turn`.
