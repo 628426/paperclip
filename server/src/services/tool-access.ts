@@ -9018,9 +9018,22 @@ export function toolAccessService(
     const galleryMethod = galleryEntry
       ? connectionMethodForConnection(galleryEntry, connection)
       : null;
+    // Pinned endpoints describe the provider's console-registered OAuth app.
+    // A method that also offers dynamic registration registers against the MCP
+    // server's own authorization server (Linear: mcp.linear.app, not
+    // linear.app), which only discovery finds. So the pins stand in for
+    // discovery only when no registration is possible or the connection
+    // already carries an operator-entered client.
+    const storedOAuth = oauthConfig(connection);
+    const usesOperatorClient =
+      storedOAuth.clientRegistrationSource === "manual" &&
+      connection.ownership !== "dcr" &&
+      typeof storedOAuth.clientId === "string" &&
+      storedOAuth.clientId.trim().length > 0;
     const hasCompleteGalleryEndpointHints = Boolean(
       galleryMethod?.defaults?.authorizationEndpoint &&
-      galleryMethod.defaults.tokenEndpoint,
+      galleryMethod.defaults.tokenEndpoint &&
+      (!galleryMethod.ownershipModes.includes("dcr") || usesOperatorClient),
     );
     // The smoke-lab fixture's endpoints are first-party and complete, so
     // discovery is not just unnecessary there, it must not run: an unreachable
@@ -9744,6 +9757,13 @@ export function toolAccessService(
    * connection may register once — and only once — protected-resource and
    * authorization-server discovery actually produced a metadata document; an
    * endpoint that merely returned a 401 does not earn a registration.
+   *
+   * A curated method pinned to customer-owned clients still earns a registration
+   * when the provider's own metadata advertises one. `ownershipModes` is a
+   * point-in-time research snapshot, and providers add dynamic registration
+   * without telling us; live discovery is the better evidence of the two, so a
+   * stale catalog entry costs the operator a console detour rather than silently
+   * outranking what the server just said about itself.
    */
   function canRegisterOAuthClientDynamically(
     connection: typeof toolConnections.$inferSelect,
@@ -9751,10 +9771,9 @@ export function toolAccessService(
     galleryEntry: AppDefinition | null,
   ): boolean {
     if (galleryEntry) {
-      return connectionMethodForConnection(
-        galleryEntry,
-        connection,
-      ).ownershipModes.includes("dcr");
+      const method = connectionMethodForConnection(galleryEntry, connection);
+      if (method.ownershipModes.includes("dcr")) return true;
+      return method.auth === "oauth" && Boolean(endpoints.registrationUrl);
     }
     return (
       connection.transport === "mcp_remote" && Boolean(endpoints.metadataUrl)
