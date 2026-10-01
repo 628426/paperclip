@@ -2672,10 +2672,8 @@ export function TaskChatThread(props: TaskChatThreadProps) {
         initialCommentWindow.current.oldestAt
     );
   });
-  const historyPending =
-    initialHistoryPending ||
-    planLoading ||
-    initialRuns.some((run) => {
+  const transcriptHistoryPending = initialRuns.some((run) => {
+      if (run.status === "scheduled_retry") return false;
       if (
         run.runtimeMode === "native" &&
         (hydratedNativeRunIds
@@ -2692,6 +2690,11 @@ export function TaskChatThread(props: TaskChatThreadProps) {
         ? !hydratedLogRunIds.has(run.id)
         : logsAreInitiallyHydrating;
     });
+  // Backport the progressive reveal from upstream #14727. Saved content must
+  // not wait for supporting transcripts or a plan document.
+  const historyPending = initialHistoryPending || (
+    comments.length === 0 && !issueBrief?.description && (planLoading || transcriptHistoryPending)
+  );
   const historyError =
     initialHistoryError ||
     planError ||

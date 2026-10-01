@@ -143,6 +143,22 @@ function render(ui: ReactElement) {
   );
 }
 
+it("reveals saved replies while transcript hydration is pending", () => {
+  transcriptState.isInitialHydrating = true;
+  const comment = {
+    id: "saved-reply", companyId: "company", issueId: "issue",
+    authorAgentId: null, authorType: "user" as const, authorUserId: "board",
+    presentation: null, metadata: null, body: "Saved reply is readable now",
+    createdAt: new Date("2026-09-09T12:00:00Z"),
+    updatedAt: new Date("2026-09-09T12:00:00Z"),
+  };
+  render(<TaskChatThread comments={[comment]} onAdd={async () => {}} linkedRuns={[
+    { runId: "pending-transcript", agentId: "agent", status: "succeeded", adapterType: "process", createdAt: "2026-09-09T12:00:00Z", startedAt: "2026-09-09T12:00:00Z" },
+  ]} />);
+  expect(container.querySelector('[data-testid="task-chat-history-loading"]')).toBeNull();
+  expect(container.textContent).toContain("Saved reply is readable now");
+});
+
 it("coordinates first reveal while keeping the composer and visible history mounted through refresh", async () => {
   const props = {
     issueId: "coordinated-issue",

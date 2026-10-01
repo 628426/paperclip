@@ -1560,6 +1560,30 @@ describe("IssueDetail", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
+  it.each(["comments", "description", "empty"])("reveals %s without waiting for supporting history unless the thread is empty", async (content) => {
+    const history = createDeferred<[]>();
+    mockIssuesApi.get.mockResolvedValue(createIssue({
+      description: content === "description" ? "Saved task description" : null,
+    }));
+    mockIssuesApi.listComments.mockResolvedValue(content === "comments" ? [createIssueComment()] : []);
+    mockActivityApi.forIssue.mockReturnValue(history.promise);
+    mockActivityApi.runsForIssue.mockReturnValue(history.promise);
+    mockHeartbeatsApi.liveRunsForIssue.mockReturnValue(history.promise);
+    mockIssuesApi.listInteractions.mockReturnValue(history.promise);
+    mockIssuesApi.listAttachments.mockReturnValue(history.promise);
+    mockIssuesApi.listWorkProducts.mockReturnValue(history.promise);
+    await act(async () => {
+      root.render(<QueryClientProvider client={queryClient}><IssueDetail /></QueryClientProvider>);
+    });
+    await waitForAssertion(() => {
+      expect(mockIssueChatThreadRender.mock.calls.at(-1)?.[0]).toMatchObject({ initialHistoryPending: content === "empty" });
+    });
+    history.resolve([]);
+    await waitForAssertion(() => {
+      expect(mockIssueChatThreadRender.mock.calls.at(-1)?.[0]).toMatchObject({ initialHistoryPending: false });
+    });
+  });
+
   it("loads from the pending state into issue detail without changing hook order", async () => {
     const issueRequest = createDeferred<Issue>();
     mockIssuesApi.get.mockReturnValueOnce(issueRequest.promise);

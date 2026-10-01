@@ -1217,6 +1217,7 @@ type IssueDetailChatTabProps = {
   comments: IssueDetailComment[];
   commentsInitialLoading?: boolean;
   initialHistoryPending?: boolean;
+  initialMetadataPending?: boolean;
   initialHistoryError?: boolean;
   onRetryInitialHistory?: () => void;
   locallyQueuedCommentRunIds: ReadonlyMap<string, string>;
@@ -1356,6 +1357,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   comments,
   commentsInitialLoading = false,
   initialHistoryPending = false,
+  initialMetadataPending = false,
   initialHistoryError = false,
   onRetryInitialHistory,
   locallyQueuedCommentRunIds,
@@ -2318,9 +2320,12 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
             initialHistoryPending={!!issueId && (
               initialHistoryPending ||
               commentsInitialLoading ||
-              activityPending ||
-              linkedRunsPending ||
-              !runtimeSelectionKnown)
+              ((classicTaskInterfaceEnabled || (commentsForThread.length === 0 && !issueBrief?.description)) && (
+                initialMetadataPending ||
+                activityPending ||
+                linkedRunsPending ||
+                !runtimeSelectionKnown
+              )))
             }
             initialHistoryError={
               initialHistoryError ||
@@ -7739,8 +7744,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   legacyRecoverySourceIssue={legacyRecoverySourceIssue}
                   comments={threadComments}
                   commentsInitialLoading={commentsLoading}
-                  initialHistoryPending={
-                    linkedCommentPending ||
+                  initialHistoryPending={linkedCommentPending}
+                  initialMetadataPending={
                     interactionsLoading ||
                     attachmentsLoading ||
                     workProductsLoading
