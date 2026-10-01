@@ -23,7 +23,9 @@ import { getOrCreatePaperclipReactRoot } from "./lib/react-root";
 import { startServiceWorkerUpdates } from "./lib/service-worker-updates";
 import "@mdxeditor/editor/style.css";
 import "./index.css";
+import { installRandomUUIDFallback } from "./lib/crypto-compat";
 
+installRandomUUIDFallback();
 initPluginBridge(React, ReactDOM);
 
 // React 19.2 emits an unbounded stream of performance.measure() entries for its
