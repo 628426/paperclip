@@ -671,7 +671,7 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
           .query({ view: "compact", limit: "20", q: `cache-key-${index}` });
         expect(res.status, JSON.stringify(res.body)).toBe(200);
       }
-  
+
       expect(__getIssueListResponseCacheSizeForTests()).toBe(ISSUE_LIST_SERVER_CACHE_MAX_ENTRIES);
     } finally {
       clock.mockRestore();
