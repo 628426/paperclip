@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { activityLog, agents, companies, companyMemberships, createDb, heartbeatRuns, issues, principalPermissionGrants } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -96,6 +96,34 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
       grantedByUserId: null,
     });
   }
+
+  it("applies limit when listing issues without a status filter", async () => {
+    const companyId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: uniqueIssuePrefix(),
+      requireBoardApprovalForNewAgents: false,
+    });
+    await seedCloudTenantMember(companyId);
+    await db.insert(issues).values(
+      Array.from({ length: 12 }, (_, index) => ({
+        id: randomUUID(),
+        companyId,
+        title: `Unfiltered issue ${index + 1}`,
+        status: index % 2 === 0 ? "todo" : "done",
+        priority: "medium" as const,
+      })),
+    );
+
+    const res = await request(createApp(companyId))
+      .get(`/api/companies/${companyId}/issues`)
+      .query({ limit: "10" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toHaveLength(10);
+  });
 
   it("returns only unassigned issues for assigneeAgentId=null", async () => {
     const companyId = randomUUID();
@@ -633,15 +661,21 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
       priority: "medium",
     });
 
-    const app = createApp(companyId);
-    for (let index = 0; index < ISSUE_LIST_SERVER_CACHE_MAX_ENTRIES + 5; index += 1) {
-      const res = await request(app)
-        .get(`/api/companies/${companyId}/issues`)
-        .query({ view: "compact", limit: "20", q: `cache-key-${index}` });
-      expect(res.status, JSON.stringify(res.body)).toBe(200);
-    }
+    // Exercise capacity eviction independently of the real-time expiry policy.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    try {
+      const app = createApp(companyId);
+      for (let index = 0; index < ISSUE_LIST_SERVER_CACHE_MAX_ENTRIES + 5; index += 1) {
+        const res = await request(app)
+          .get(`/api/companies/${companyId}/issues`)
+          .query({ view: "compact", limit: "20", q: `cache-key-${index}` });
+        expect(res.status, JSON.stringify(res.body)).toBe(200);
+      }
 
-    expect(__getIssueListResponseCacheSizeForTests()).toBe(ISSUE_LIST_SERVER_CACHE_MAX_ENTRIES);
+      expect(__getIssueListResponseCacheSizeForTests()).toBe(ISSUE_LIST_SERVER_CACHE_MAX_ENTRIES);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("logs request_storm_detected for identical in-flight compact issue-list fanout without query values", async () => {
