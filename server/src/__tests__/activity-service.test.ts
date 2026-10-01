@@ -119,11 +119,11 @@ describeEmbeddedPostgres("activity service", () => {
       { id: agentId, companyId, name: "Target", role: "engineer", adapterType: "process" },
       { id: otherAgentId, companyId: otherCompanyId, name: "Other", role: "engineer", adapterType: "process" },
     ]);
-    await db.insert(issues).values({ id: issueId, companyId, title: "Lookup", status: "todo", priority: "medium" });
+    await db.insert(issues).values({ id: issueId, companyId, title: "Lookup", status: "in_progress", priority: "medium" });
     const [contextId, activityId, bothId, unrelatedId, foreignId, foreignLinkId] = Array.from({ length: 6 }, () => randomUUID());
     await db.insert(heartbeatRuns).values([
       { id: contextId, companyId, agentId, status: "succeeded", contextSnapshot: { issueId }, createdAt: new Date("2026-09-01T01:00:00Z") },
-      { id: activityId, companyId, agentId, status: "succeeded", contextSnapshot: {}, createdAt: new Date("2026-09-01T02:00:00Z") },
+      { id: activityId, companyId, agentId, status: "succeeded", contextSnapshot: {}, resultJson: { summary: "I will inspect the repository next." }, createdAt: new Date("2026-09-01T02:00:00Z") },
       { id: bothId, companyId, agentId, status: "succeeded", contextSnapshot: { issueId }, createdAt: new Date("2026-09-01T03:00:00Z") },
       { id: unrelatedId, companyId, agentId, status: "succeeded", contextSnapshot: { issueId: randomUUID() } },
       { id: foreignId, companyId: otherCompanyId, agentId: otherAgentId, status: "succeeded", contextSnapshot: { issueId } },
@@ -136,6 +136,8 @@ describeEmbeddedPostgres("activity service", () => {
     ]);
     const runs = await activityService(db).runsForIssue(companyId, issueId);
     expect(runs.map(run => run.runId)).toEqual([bothId, activityId, contextId]);
+    await waitForIssueRun(activityService(db), companyId, issueId, run => run.runId === activityId && run.livenessState === "advanced");
+    expect((await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, activityId)))[0].livenessState).toBe("advanced");
     expect(await activityService(db).runsForIssue(companyId, randomUUID())).toEqual([]);
   });
 
