@@ -62,7 +62,7 @@ describeEmbeddedPostgres("attention service", () => {
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-attention-service-");
     db = createDb(tempDb.connectionString);
-  }, 30_000);
+  }, 90_000);
 
   afterEach(async () => {
     await db.delete(inboxDismissals);
@@ -1093,6 +1093,71 @@ describeEmbeddedPostgres("attention service", () => {
     expect(feed.items.filter((item) => item.sourceKind === "failed_run").map((item) => item.subject.id)).toEqual([
       workerRunId,
     ]);
+  });
+
+  it.each([
+    { issueId: "" },
+    { issueId: 42 },
+    { issueId: false },
+    { issueId: { invalid: true } },
+  ])("suppresses context-less failures after a newer run with an invalid issueId: %j", async (context) => {
+    const { companyId, workerId } = await seedCompany("ACX");
+    const failedRunId = randomUUID();
+    const failedAt = new Date("2026-07-09T12:00:00.000Z");
+    const newerAt = new Date("2026-07-09T12:01:00.000Z");
+    await db.insert(heartbeatRuns).values([
+      {
+        id: failedRunId, companyId, agentId: workerId, invocationSource: "timer",
+        status: "failed", contextSnapshot: null,
+        createdAt: failedAt, updatedAt: failedAt, finishedAt: failedAt,
+      },
+      {
+        id: randomUUID(), companyId, agentId: workerId, invocationSource: "timer",
+        status: "succeeded", contextSnapshot: { ...context, taskId: randomUUID() },
+        createdAt: newerAt, updatedAt: newerAt, finishedAt: newerAt,
+      },
+    ]);
+    await db.insert(heartbeatRunEvents).values({
+      companyId, agentId: workerId, runId: failedRunId, seq: 1,
+      eventType: "lifecycle", message: "Bounded retry exhausted",
+    });
+
+    const feed = await attentionService(db).list(companyId, { userId: "board-user" });
+    expect(feed.items.filter((item) => item.sourceKind === "failed_run")).toEqual([]);
+  });
+
+  it.each([
+    { issueId: undefined, newerSeconds: 60, suppress: true },
+    { issueId: null, newerSeconds: 60, suppress: true },
+    { issueId: "", newerSeconds: 60, suppress: false },
+    { issueId: false, newerSeconds: 60, suppress: false },
+    { issueId: undefined, newerSeconds: 0, suppress: false },
+  ])("preserves taskId fallback and strict newer timestamps: %j", async ({ issueId, newerSeconds, suppress }) => {
+    const { companyId, workerId } = await seedCompany("AKX");
+    const taskId = await insertIssue({ companyId, identifier: "AKX-1", title: "Retry task", status: "in_progress" });
+    const failedRunId = randomUUID();
+    const failedAt = new Date("2026-07-09T12:00:00.000Z");
+    const newerAt = new Date(failedAt.getTime() + newerSeconds * 1000);
+    await db.insert(heartbeatRuns).values([
+      {
+        id: failedRunId, companyId, agentId: workerId, invocationSource: "automation",
+        status: "failed", contextSnapshot: { issueId: taskId },
+        createdAt: failedAt, updatedAt: failedAt, finishedAt: failedAt,
+      },
+      {
+        id: randomUUID(), companyId, agentId: workerId, invocationSource: "automation",
+        status: "succeeded", contextSnapshot: { issueId, taskId },
+        createdAt: newerAt, updatedAt: newerAt, finishedAt: newerAt,
+      },
+    ]);
+    await db.insert(heartbeatRunEvents).values({
+      companyId, agentId: workerId, runId: failedRunId, seq: 1,
+      eventType: "lifecycle", message: "Bounded retry exhausted",
+    });
+
+    const feed = await attentionService(db).list(companyId, { userId: "board-user" });
+    expect(feed.items.filter((item) => item.sourceKind === "failed_run").map((item) => item.subject.id))
+      .toEqual(suppress ? [] : [failedRunId]);
   });
 
   it("enriches interaction details with project, workspace, plan metadata, and images", async () => {

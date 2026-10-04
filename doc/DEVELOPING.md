@@ -1213,6 +1213,17 @@ Without `PAPERCLIP_DB_BACKUP_ALERT_FILE`, health checks look for
 `db-backup-to-s3.failure` in the backup directory, beside the backup directory,
 and in the default sibling `health/` directory.
 
+## Decision retention sweep
+
+The server runs one decision retention sweep at startup. Scheduler ticks then
+start a sweep at most once every five minutes. A tick skips this work while
+the previous sweep is still running. Decision expiry still runs on each tick.
+
+Set `PAPERCLIP_DECISION_RETENTION_SWEEP_INTERVAL_MS` to change the minimum
+interval between sweep starts. The default is `300000` milliseconds; the
+minimum is `10000` milliseconds. This controls archive retention and its
+notification delivery, not the expiry of pending decisions.
+
 DB backups are not full instance filesystem backups. For full local disaster
 recovery, also back up local storage files and the local encrypted secrets key if
 those providers are enabled.

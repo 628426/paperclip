@@ -1078,8 +1078,8 @@ function failedRunKey(agentId: string, issueId: string | null) {
  * Returns the keys (see failedRunKey) that have at least one run created after
  * the key's createdAt for the same agent and issue context. Matching mirrors
  * readRunIssueId: a run is on issue X when context_snapshot.issueId is X, or
- * when issueId is absent and taskId is X; a run has no issue context when
- * both are absent or empty. Each EXISTS is a plain conjunction with created_at
+ * when issueId is null/absent and taskId is X. The selected value must be a
+ * nonempty string; an invalid issueId masks taskId. Each EXISTS uses created_at
  * in it, so the planner serves it as a bounded range on the
  * heartbeat_runs_company_ctx_{issue,task}_created_idx expression indexes.
  */
@@ -1100,6 +1100,7 @@ async function failedRunKeysWithNewerRun(db: Db, companyId: string, keys: Failed
         FROM ${heartbeatRuns} r
         WHERE r.company_id = ${companyId}
           AND (r.context_snapshot ->> 'issueId') = k.issue_id
+          AND jsonb_typeof(r.context_snapshot -> 'issueId') = 'string'
           AND r.created_at > k.created_at
           AND r.agent_id = k.agent_id
       ) OR EXISTS (
@@ -1108,6 +1109,7 @@ async function failedRunKeysWithNewerRun(db: Db, companyId: string, keys: Failed
         WHERE r.company_id = ${companyId}
           AND (r.context_snapshot ->> 'issueId') IS NULL
           AND (r.context_snapshot ->> 'taskId') = k.issue_id
+          AND jsonb_typeof(r.context_snapshot -> 'taskId') = 'string'
           AND r.created_at > k.created_at
           AND r.agent_id = k.agent_id
       )
@@ -1131,8 +1133,13 @@ async function failedRunKeysWithNewerRun(db: Db, companyId: string, keys: Failed
         WHERE r.company_id = ${companyId}
           AND r.agent_id = k.agent_id
           AND r.created_at > k.created_at
-          AND ((r.context_snapshot ->> 'issueId') IS NULL OR (r.context_snapshot ->> 'issueId') = '')
-          AND ((r.context_snapshot ->> 'taskId') IS NULL OR (r.context_snapshot ->> 'taskId') = '')
+          AND CASE WHEN (r.context_snapshot ->> 'issueId') IS NULL THEN
+            coalesce(jsonb_typeof(r.context_snapshot -> 'taskId'), 'null') <> 'string'
+              OR (r.context_snapshot ->> 'taskId') = ''
+          ELSE
+            jsonb_typeof(r.context_snapshot -> 'issueId') <> 'string'
+              OR (r.context_snapshot ->> 'issueId') = ''
+          END
         ORDER BY r.created_at DESC
         LIMIT 1
       ) IS NOT NULL
