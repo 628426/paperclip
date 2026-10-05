@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
   agents,
   approvals,
   companies,
+  costEvents,
   createDb,
   heartbeatRuns,
+  EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   inboxDismissals,
   invites,
   joinRequests,
@@ -42,13 +45,14 @@ describeEmbeddedPostgres("inbox dismissals", () => {
     db = createDb(tempDb.connectionString);
     dismissalsSvc = inboxDismissalService(db);
     badgesSvc = sidebarBadgeService(db);
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(inboxDismissals);
     await db.delete(joinRequests);
     await db.delete(invites);
     await db.delete(activityLog);
+    await db.delete(costEvents);
     await db.delete(heartbeatRuns);
     await db.delete(approvals);
     await db.delete(agents);
@@ -268,5 +272,41 @@ describeEmbeddedPostgres("inbox dismissals", () => {
       failedRuns: 1,
       joinRequests: 0,
     });
+  });
+
+  it("reads lightweight alerts with the same rounded budget threshold and failed-run deduplication", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const agentId = randomUUID();
+    const otherAgentId = randomUUID();
+    await db.insert(companies).values([companyId, otherCompanyId].map((id) => ({
+      id, name: "Paperclip", issuePrefix: `T${id.slice(0, 6).toUpperCase()}`,
+      budgetMonthlyCents: 100_000, requireBoardApprovalForNewAgents: false,
+    })));
+    await db.insert(agents).values([
+      { id: agentId, companyId, name: "Builder", role: "engineer", status: "error", adapterType: "codex_local" },
+      { id: otherAgentId, companyId: otherCompanyId, name: "Other", role: "engineer", status: "error", adapterType: "codex_local" },
+    ]);
+    const now = new Date();
+    const cost = { provider: "test", model: "test", occurredAt: now };
+    await db.insert(costEvents).values([
+      { ...cost, companyId, agentId, costCents: 79_996 },
+      { ...cost, companyId: otherCompanyId, agentId: otherAgentId, costCents: 1_000_000 },
+      { ...cost, companyId, agentId, costCents: 1_000_000, occurredAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)) },
+    ]);
+    expect(await badgesSvc.get(companyId, { includeAlerts: true })).toMatchObject({ inbox: 2, failedRuns: 0 });
+    const runId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: runId, companyId, agentId, status: "failed", createdAt: now });
+    expect(await badgesSvc.get(companyId, { includeAlerts: true })).toMatchObject({ inbox: 2, failedRuns: 1 });
+    expect(await badgesSvc.get(companyId, {
+      includeAlerts: true, dismissals: new Map([[`run:${runId}`, now.getTime()]]),
+    })).toMatchObject({ inbox: 2, failedRuns: 0 });
+    expect(await badgesSvc.get(companyId)).toMatchObject({ inbox: 1, failedRuns: 1 });
+    await db.delete(costEvents).where(eq(costEvents.companyId, companyId));
+    expect(await badgesSvc.get(companyId, { includeAlerts: true })).toMatchObject({ inbox: 1 });
+    await db.update(agents).set({ status: "idle" }).where(eq(agents.id, agentId));
+    expect(await badgesSvc.get(companyId, {
+      includeAlerts: true, dismissals: new Map([[`run:${runId}`, now.getTime()]]),
+    })).toMatchObject({ inbox: 0 });
   });
 });
