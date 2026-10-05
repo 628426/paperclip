@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -44,7 +44,7 @@ describeEmbeddedPostgres("dashboard service", () => {
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-dashboard-service-");
     db = createDb(tempDb.connectionString);
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(heartbeatRuns);
@@ -212,6 +212,7 @@ describeEmbeddedPostgres("dashboard service", () => {
     const chainedRetrySuccess = randomUUID();
     // A genuine, unrecovered failure that should remain in the failed count.
     const trueFailure = randomUUID();
+    const oldFailure = randomUUID();
 
     await db.insert(heartbeatRuns).values([
       { ...base, id: original, status: "failed", errorCode: "process_lost" },
@@ -220,18 +221,21 @@ describeEmbeddedPostgres("dashboard service", () => {
       { ...base, id: chainedRetry, status: "failed", errorCode: "process_lost", retryOfRunId: chainedOriginal },
       { ...base, id: chainedRetrySuccess, status: "succeeded", retryOfRunId: chainedRetry },
       { ...base, id: trueFailure, status: "failed", errorCode: "provider_quota" },
+      { ...base, status: "succeeded", retryOfRunId: original },
+      { ...base, id: oldFailure, status: "failed", errorCode: "process_lost", createdAt: utcDay(-20) },
+      { ...base, status: "succeeded", retryOfRunId: oldFailure },
     ]);
 
     const summary = await dashboardService(db).summary(companyId);
     const bucket = summary.runActivity.find((b) => b.date === utcDateKey(day));
 
     expect(bucket).toMatchObject({
-      succeeded: 2,
+      succeeded: 4,
       // original + chainedOriginal + chainedRetry all recovered via a later success
       recovered: 3,
       failed: 1,
       other: 0,
-      total: 6,
+      total: 8,
       failedByErrorCode: { provider_quota: 1 },
     });
     // process_lost kills that recovered must not leak into the failed breakdown.
