@@ -225,6 +225,7 @@ import { IssueGalleryContext } from "../context/IssueGalleryContext";
 import { useIssuePlanDocument } from "../hooks/useIssuePlanDocument";
 import { useTaskArtifactArrival } from "../hooks/useTaskArtifactArrival";
 import { IssueRunLedger } from "../components/IssueRunLedger";
+import { issueRunsRefetchInterval } from "../lib/issueRunsPolling";
 import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import type { MentionOption } from "../components/MarkdownEditor";
 import {
@@ -1544,8 +1545,8 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     queryKey: queryKeys.issues.runs(issueId),
     queryFn: () => activityApi.runsForIssue(issueId),
     enabled: !!issueId,
-    refetchInterval:
-      hasLiveRuns || issueStatus === "in_progress" ? 1000 : false,
+    refetchInterval: (query) =>
+      issueRunsRefetchInterval(hasLiveRuns, query.state.data, 1000),
     placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
   });
   const resolvedActivity = activity ?? [];

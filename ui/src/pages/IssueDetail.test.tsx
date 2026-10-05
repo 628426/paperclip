@@ -3237,6 +3237,54 @@ describe("IssueDetail", () => {
     },
   );
 
+  it("stops polling issue history when an in-progress task has no live run", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      mockIssuesApi.get.mockResolvedValue(createIssue({ status: "in_progress" }));
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><IssueDetail /></QueryClientProvider>);
+      });
+      await flushReact();
+      await flushReact();
+      const initialCalls = mockActivityApi.runsForIssue.mock.calls.length;
+      expect(initialCalls).toBeGreaterThan(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      await flushReact();
+      expect(mockActivityApi.runsForIssue).toHaveBeenCalledTimes(initialCalls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps polling issue history while a run is live", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      mockIssuesApi.get.mockResolvedValue(createIssue({ status: "in_progress" }));
+      mockHeartbeatsApi.liveRunsForIssue.mockResolvedValue([{
+        id: "run-current", status: "running", invocationSource: "issue", triggerDetail: null,
+        startedAt: "2026-04-21T00:00:01.000Z", finishedAt: null,
+        createdAt: "2026-04-21T00:00:01.000Z", agentId: "agent-1", agentName: "Builder",
+        adapterType: "codex_local", issueId: "issue-1",
+      }]);
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><IssueDetail /></QueryClientProvider>);
+      });
+      await flushReact();
+      await flushReact();
+      const initialCalls = mockActivityApi.runsForIssue.mock.calls.length;
+      expect(initialCalls).toBeGreaterThan(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      await flushReact();
+      expect(mockActivityApi.runsForIssue.mock.calls.length).toBeGreaterThan(initialCalls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("recovers historical follow-up provenance from overlapping run chronology", async () => {
     mockIssuesApi.get.mockResolvedValue(createIssue({ status: "done" }));
     mockIssuesApi.listComments.mockResolvedValue([

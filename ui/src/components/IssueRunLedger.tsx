@@ -22,6 +22,7 @@ import {
 import { useToastActions } from "../context/ToastContext";
 import { cn, relativeTime } from "../lib/utils";
 import { queryKeys } from "../lib/queryKeys";
+import { issueRunsRefetchInterval } from "../lib/issueRunsPolling";
 import { keepPreviousDataForSameQueryTail } from "../lib/query-placeholder-data";
 import { describeRunRetryState } from "../lib/runRetryState";
 import { readSourceResolvedWatchdogFold } from "../lib/source-resolved-watchdog-fold";
@@ -453,8 +454,8 @@ export function IssueRunLedger({
   const { data: runs } = useQuery({
     queryKey: queryKeys.issues.runs(issueId),
     queryFn: () => activityApi.runsForIssue(issueId),
-    refetchInterval:
-      hasLiveRuns || issueStatus === "in_progress" ? 5000 : false,
+    refetchInterval: (query) =>
+      issueRunsRefetchInterval(hasLiveRuns, query.state.data),
     placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
   });
   const { data: liveRuns } = useQuery({
