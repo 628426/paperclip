@@ -1,5 +1,5 @@
 {
-  "id": "35e00ee0-fa1a-436e-91ca-620a8984f5c8",
+  "id": "861a2815-1418-4c71-a77b-d0e2e9566413",
   "prevId": "4770ad6d-2cdc-45c4-af89-c300fd134d91",
   "version": "7",
   "dialect": "postgresql",
@@ -2037,6 +2037,12 @@
         "icon": {
           "name": "icon",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appearance": {
+          "name": "appearance",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -22758,33 +22764,6 @@
             },
             {
               "expression": "(\"context_snapshot\" ->> 'taskKey')",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "heartbeat_runs_company_ctx_paperclip_issue_created_idx": {
-          "name": "heartbeat_runs_company_ctx_paperclip_issue_created_idx",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "(\"context_snapshot\" -> 'paperclipIssue' ->> 'id')",
               "asc": true,
               "isExpression": true,
               "nulls": "last"

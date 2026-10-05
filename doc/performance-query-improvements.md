@@ -1,5 +1,12 @@
 # Query and polling performance improvements
 
+The branch includes upstream revision
+`8f8a0ab7effbd6a0584107d8038736c134ee5047`, the source revision of the official
+2026.1001.0 image. Performance patches are integrated with that revision rather
+than replacing its newer functionality. The imported index migration is numbered
+0284, after the upstream migration history; no migration has been applied to a
+live environment as part of this branch correction.
+
 These changes reduce repeated history reads and query work while preserving
 company boundaries, recovery predicates and task activity ordering. They add
 no schema, migration, index or trigger. The performance branch separately
@@ -62,8 +69,15 @@ query execution fell from 11.086 to 5.947 ms for wake selection and from
 602.416 to 159.925 ms for a 100-row task page. Host load and cache churn were
 uncontrolled. These are query samples, not browser latency guarantees.
 
-Focused tests, server TypeScript checking, UI TypeScript checking, the UI build
-and token gates passed during development. Full repository checks remain
-unverified: generated Runner artifacts block typechecking/building, and the
-Windows test wrapper fails with `spawnSync pnpm ENOENT`. Deployment and
-end-to-end page measurements remain separate validation steps.
+After integration with the exact upstream revision, 101 focused tests across
+six files passed, including the merged run-route validation and regenerated
+migration snapshot. The route suite was rerun with a 60-second CLI timeout after
+its initial module load exceeded the default test timeout. Server and UI
+TypeScript checking, the UI production build, migration checks and token gates
+also passed.
+
+Full repository checks remain unverified in this Windows workspace: the native
+Runner toolchain is unavailable, and the normal test wrapper previously failed
+with `spawnSync pnpm ENOENT`. Deployment and end-to-end page measurements remain
+separate validation steps. This branch correction did not build a Docker image
+or change a running instance.

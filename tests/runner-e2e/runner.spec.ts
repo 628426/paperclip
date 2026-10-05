@@ -1,3 +1,4 @@
+import { runContinuationFlow } from "./continuation-flow.js";
 import { runEverydayFlow } from "./everyday-flow.js";
 import { createTaskThroughUi, submitTaskReply } from "./user-actions.js";
 
@@ -14,7 +15,7 @@ import { classifyFailure } from "./failure-classifier.js";
 import { runnerE2EServerControlPaths } from "./harness-env.js";
 import { setupConnectionReview } from "./connection-reviews.js";
 import { setupLiveFixtures, type LiveFixtureValues } from "./live-fixtures.js";
-import { evaluateMatcher, type MatcherResult } from "./matchers.js";
+import { evaluateMatcher, persistedFinalRunMessage, type MatcherResult } from "./matchers.js";
 import {
   acceptedPlanSessionResetFailures,
   hasTerminalMalformedPlanConfirmation,
@@ -25,6 +26,7 @@ import {
   providerSessionContinuityFailures,
 } from "./run-observations.js";
 import { resolveRunnerE2ESource } from "./source.js";
+import { isValidNativePrpEnvelope } from "./native-event-envelope.js";
 import {
   isPublicRunnerScreenshotRoute,
   PUBLIC_RUNNER_SCREENSHOT_MARKER,
@@ -391,12 +393,10 @@ function nativeRunEventIntegrityFailures(
     }
     const envelope = record(event.payload?.prpEvent);
     if (Object.keys(envelope).length === 0) continue;
-    if (
-      envelope.schema !== "paperclip.prp.event.v1" ||
-      envelope.schemaVersion !== 1 ||
-      event.protocolSchemaVersion !== 1
-    ) {
-      failures.push(`run ${run.id} exposed a malformed PRP v1 envelope`);
+    if (!isValidNativePrpEnvelope(envelope, event.protocolSchemaVersion)) {
+      failures.push(
+        `run ${run.id} exposed a malformed PRP envelope (schema=${String(envelope.schema)}, version=${String(envelope.schemaVersion)})`,
+      );
     }
     if (envelope.runId !== run.id) {
       failures.push(
@@ -527,9 +527,10 @@ for (const execution of executions) {
     const credentials = credentialValues();
     const secrets = normalizedSecrets(Object.values(credentials));
     const api = new RunnerApi(request);
-    const companyRunFlow = ["agent_chat", "everyday_workflow", "first_task"].includes(execution.task.flow);
+    const companyRunFlow = ["continuation", "agent_chat", "everyday_workflow", "first_task"].includes(execution.task.flow);
     const consoleDiagnostics: Array<Record<string, unknown>> = [];
     const networkDiagnostics: Array<Record<string, unknown>> = [];
+    const pageLifecycleDiagnostics: Array<Record<string, unknown>> = [];
     let fixtures: LiveFixtureValues | undefined;
     let reviewProvider: Awaited<ReturnType<typeof setupConnectionReview>> | undefined;
     let issue: IssueRecord | undefined;
@@ -721,6 +722,22 @@ for (const execution of executions) {
         });
       }
     });
+    page.on("pageerror", (error) => {
+      pageLifecycleDiagnostics.push({
+        type: "pageerror",
+        message: error.message,
+        stack: error.stack ?? null,
+        url: page.url(),
+      });
+    });
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame())
+        pageLifecycleDiagnostics.push({
+          type: "navigation",
+          url: frame.url(),
+          at: new Date().toISOString(),
+        });
+    });
     page.on("requestfailed", (requestEvent) => {
       networkDiagnostics.push({
         method: requestEvent.method(),
@@ -789,7 +806,19 @@ for (const execution of executions) {
         secrets,
       );
 
-      if (execution.task.flow === "everyday_workflow") {
+      if (execution.task.flow === "continuation") {
+        const continuation = await runContinuationFlow({
+          page, api, fixtures, execution, nonce, secrets, workspacePath, deadlineAt: startedAtMs + deadlineMs - 60_000,
+          restart: () => restartIsolatedPaperclipServer({ api, requestId: `continuation-${nonce}`, deadlineAt: startedAtMs + deadlineMs }),
+          observe: (currentIssue, currentRuns, checks) => {
+            issue = currentIssue; selectedRuns = currentRuns;
+            matcherResults = checks.map(check => ({ matcher: { kind: "json_path" as const, path: `continuation.${check.id}`, expected: true }, passed: check.passed, detail: check.detail }));
+          },
+          capture: captureScreenshot,
+          evidence: (name, data) => writeSanitizedJson(snapshotsDir, name, data, secrets),
+        });
+        issue = continuation.issue as IssueRecord; selectedRuns = continuation.runs as RunRecord[];
+      } else if (execution.task.flow === "everyday_workflow") {
         const story = await runEverydayFlow({
           page, api, fixtures, execution, nonce, workspacePath, privateDir,
           deadlineAt: startedAtMs + deadlineMs,
@@ -802,7 +831,7 @@ for (const execution of executions) {
         matcherResults = story.evidence.checks.map(check => ({ matcher: { kind: "json_path" as const, path: check.id, expected: true }, passed: check.passed, detail: check.detail }));
       } else if (execution.task.flow === "agent_chat") {
         const chat = await runChatFlow({
-          page, api, fixtures, execution, nonce,
+          page, api, fixtures, execution, nonce, workspacePath,
           restart: () => restartIsolatedPaperclipServer({ api, requestId: `chat-${nonce}`, deadlineAt: startedAtMs + deadlineMs }),
           observe: (chatIssue, chatRuns) => { issue = chatIssue; selectedRuns = chatRuns; },
           capture: captureScreenshot,
@@ -1268,9 +1297,12 @@ for (const execution of executions) {
           })
           .last()
           .check();
-        // Required single-select questions submit as soon as the radio is
-        // checked; waiting for the multi-answer submit control would race the
-        // successful continuation and misreport it as a UI failure.
+        // The one-question form is on its last page, so selecting the radio
+        // records the answer and the existing form button submits it.
+        await page
+          .getByRole("button", { name: "Submit answers", exact: true })
+          .last()
+          .click();
         questionLifecycleEvidence = {
           interaction: questionInteraction,
           answer: expectedAnswer.optionLabel,
@@ -1692,10 +1724,7 @@ for (const execution of executions) {
       const message = agentComments
         .map((comment) => comment.body ?? "")
         .join("\n");
-      const finalRunMessage = agentComments
-        .filter((comment) => comment.createdByRunId === finalRun.id)
-        .map((comment) => comment.body ?? "")
-        .join("\n");
+      const finalRunMessage = persistedFinalRunMessage(agentComments, finalRun);
       const pendingInteractions = terminal.interactions.filter(
         (interaction) => interaction.status === "pending",
       );
@@ -2318,19 +2347,27 @@ for (const execution of executions) {
       const visibleAgentReplies = page
         .getByTestId("task-chat-thread")
         .getByTestId("task-chat-agent-bubble");
-      const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const terminalAgentReplies = visibleAgentReplies.filter({
-        hasText: new RegExp(`^\\s*${escapedMarker}\\s*$`),
-      });
-      await expect(terminalAgentReplies).toHaveCount(1, { timeout: 30_000 });
-      await expect(terminalAgentReplies.first()).toBeVisible();
-      // A string-valued toHaveText assertion compares the complete rendered
-      // text while normalizing ordinary DOM whitespace. This keeps Markdown
-      // layout differences harmless without allowing prefixed, suffixed, or
-      // substituted provider prose to masquerade as the requested response.
-      await expect(terminalAgentReplies.first()).toHaveText(marker, {
-        useInnerText: true,
-      });
+      if (execution.task.flow === "warm_three_turn") {
+        // Prove the persisted user-facing response is visible, independently
+        // of the byte-for-byte workspace checks and lease continuity checks.
+        expect(finalRunMessage.trim()).not.toBe("");
+        await expect(visibleAgentReplies.filter({ hasText: finalRunMessage }).last())
+          .toBeVisible({ timeout: 30_000 });
+      } else {
+        const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const terminalAgentReplies = visibleAgentReplies.filter({
+          hasText: new RegExp(`^\\s*${escapedMarker}\\s*$`),
+        });
+        await expect(terminalAgentReplies).toHaveCount(1, { timeout: 30_000 });
+        await expect(terminalAgentReplies.first()).toBeVisible();
+        // A string-valued toHaveText assertion compares the complete rendered
+        // text while normalizing ordinary DOM whitespace. This keeps Markdown
+        // layout differences harmless without allowing prefixed, suffixed, or
+        // substituted provider prose to masquerade as the requested response.
+        await expect(terminalAgentReplies.first()).toHaveText(marker, {
+          useInnerText: true,
+        });
+      }
       await expect(
         page.getByTestId("issue-detail-header").getByRole("button", {
           name: "Change status (current: Done)",
@@ -2409,6 +2446,7 @@ for (const execution of executions) {
           {
             console: consoleDiagnostics,
             network: networkDiagnostics,
+            lifecycle: pageLifecycleDiagnostics,
           },
           secrets,
         );
