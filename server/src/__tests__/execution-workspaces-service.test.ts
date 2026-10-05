@@ -12,6 +12,7 @@ import {
   agents,
   companies,
   createDb,
+  EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   executionWorkspaces,
   heartbeatRuns,
   issueComments,
@@ -265,7 +266,7 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
       // tests further down.
       workspaceReaperCooldownDays: 0,
     });
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(workspaceRuntimeServices);
