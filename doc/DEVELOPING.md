@@ -28,6 +28,27 @@ Compare `workspace_git_scan` logs for
 `execution_workspaces.close_readiness_status` before and after a change. Include
 idle periods: background reaper scans can consume resources without UI requests.
 
+### Issue read performance
+
+Broad issue lists aggregate comment and activity timestamps once per company,
+then page issue IDs before projecting descriptions. Route boolean defaults and
+enrichment flags retain this path; selective filters and search retain per-issue
+activity probes. Ordering still excludes local inbox bookkeeping activity.
+
+Issue secret redaction reads only registry metadata from runs matching the
+company and either the current or legacy issue ID. Migration 0284 adds the
+legacy `paperclipIssue.id` expression index; the current `issueId` index already
+exists. Both lookup branches can use indexes without a company-wide cache fill.
+Decrypted values remain request-local, and each read sees newly committed
+registrations without depending on cached metadata.
+
+Package the migration SQL and its journal in performance overlay images too.
+The existing startup migration flow applies pending migrations before serving
+requests. Set `PAPERCLIP_MIGRATION_AUTO_APPLY=true` for explicit automatic
+application. Migration 0284 uses `IF NOT EXISTS`, and later starts skip an
+already recorded migration. Its first index build runs transactionally and can
+delay startup and block writes to `heartbeat_runs` until it completes.
+
 ## Dependency Lockfile Policy
 
 GitHub Actions owns `pnpm-lock.yaml`.

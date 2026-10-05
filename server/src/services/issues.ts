@@ -7945,11 +7945,16 @@ export function issueService(db: Db) {
       // Broad lists amortize activity aggregation across the company. Keep
       // selective lists on their indexed per-issue probes; search estimates
       // can otherwise turn a handful of matches into full history scans.
+      // Routes also pass false boolean defaults and includeRoutineExecutions,
+      // which does not narrow this query. Do not mistake those for selective
+      // filters and fall back to one activity lookup per company issue.
       // Unknown/future filter fields conservatively retain the existing path.
       const batchActivity = filters?.sortField !== "id" && !Object.entries(filters ?? {}).some(
-        ([key, value]) => value !== undefined && ![
-          "limit", "offset", "sortField", "sortDir", "includeBlockedBy",
-          "includeBlockedInboxAttention", "includeLiveDescendantSummary",
+        ([key, value]) => value !== undefined && !(
+          value === false && ["excludeRoutineExecutions", "includePluginOperations"].includes(key)
+        ) && ![
+          "limit", "offset", "sortField", "sortDir", "includeRoutineExecutions",
+          "includeBlockedBy", "includeBlockedInboxAttention", "includeLiveDescendantSummary",
         ].includes(key),
       );
       const commentActivity = db

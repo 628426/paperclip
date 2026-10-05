@@ -79,6 +79,8 @@ export function createRunSecretRedactionRegistry(db: Db) {
   }
 
   async function valuesForIssue(companyId: string, issueId: string) {
+    // Migration 0284 indexes the legacy branch as well as the current issue ID.
+    // Read only matching runs; no company-wide cache fill is needed.
     const rows = await db.select({ contextSnapshot: registrySnapshot })
       .from(heartbeatRuns)
       .where(and(

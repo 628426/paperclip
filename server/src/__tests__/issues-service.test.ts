@@ -2444,6 +2444,14 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     await check({ status: "todo", assigneeAgentId: agentId, limit: 2 });
     await check({ sortField: "updated", sortDir: "asc", limit: 3 });
     await check({ sortField: "updated", sortDir: "desc", offset: 1, limit: 3 });
+    const routeDefaults = {
+      includeRoutineExecutions: true, excludeRoutineExecutions: false,
+      includePluginOperations: false, includeBlockedBy: false,
+      includeBlockedInboxAttention: false, includeLiveDescendantSummary: false,
+    };
+    await check({ ...routeDefaults, sortField: "updated", sortDir: "desc", offset: 1, limit: 3 });
+    await check({ ...routeDefaults, includeLiveDescendantSummary: true, limit: 3 });
+    await check({ ...routeDefaults, status: "todo", limit: 3 });
     await check({ q: "needle", limit: 3 });
     await check({ q: "needle", status: "todo", sortField: "updated", sortDir: "asc", limit: 2, offset: 1 });
     await check({ status: "cancelled" });
