@@ -122,7 +122,10 @@ describe("AuditRuns", () => {
   it("renders a filterable flat run list with existing run-detail links", async () => {
     await render();
 
-    expect(listRunsMock).toHaveBeenCalledWith("company-1", undefined, 200, { summary: true });
+    expect(listRunsMock).toHaveBeenCalledWith("company-1", undefined, 25, {
+      summary: true,
+      offset: 0,
+    });
     expect(container.textContent).toContain("Agent");
     expect(container.textContent).toContain("Status");
     expect(container.textContent).toContain("Reviewed the release checklist");
@@ -137,7 +140,11 @@ describe("AuditRuns", () => {
     currentSearch = "agentId=agent-1&runStatus=succeeded";
     await render();
 
-    expect(listRunsMock).toHaveBeenCalledWith("company-1", "agent-1", 200, { summary: true });
+    expect(listRunsMock).toHaveBeenCalledWith("company-1", "agent-1", 25, {
+      summary: true,
+      offset: 0,
+      status: "succeeded",
+    });
     expect(container.textContent).toContain("Clear filters");
   });
 
@@ -150,5 +157,22 @@ describe("AuditRuns", () => {
     expect(container.textContent).toContain("Publish forecast");
     expect(container.textContent).toContain("Daily forecast");
     expect(container.querySelector('a[href="/issues/TES-42"]')).toBeTruthy();
+  });
+
+  it("loads an older page and de-duplicates runs that move between pages", async () => {
+    listRunsMock
+      .mockResolvedValueOnce(Array.from({ length: 25 }, (_, index) => run({ id: `run-${index}` })))
+      .mockResolvedValueOnce([run({ id: "run-24" }), run({ id: "run-older" })]);
+    await render();
+    const loadMore = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Load more runs");
+    expect(loadMore).toBeTruthy();
+    flushSync(() => loadMore?.click());
+    await vi.waitFor(() => expect(listRunsMock).toHaveBeenCalledWith("company-1", undefined, 25, {
+      summary: true, offset: 25, status: undefined,
+    }));
+    await flushReact();
+    expect(container.querySelectorAll('ul[aria-label="Recent runs"] > li')).toHaveLength(26);
+    expect(container.textContent).toContain("All 26 runs loaded.");
   });
 });
