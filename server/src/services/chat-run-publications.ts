@@ -562,6 +562,16 @@ export async function enqueueChatRunMilestones(
     limit?: number;
   } = {},
 ): Promise<number> {
+  // Both projection selectors require an automatic endpoint. Check afresh on
+  // every sweep so enabling one is observed on the next poll. Durable delivery
+  // and publication reconciliation run independently of this optional lane.
+  const [automaticEndpoint] = await db
+    .select({ id: chatEndpoints.id })
+    .from(chatEndpoints)
+    .where(eq(chatEndpoints.publicationMode, "automatic"))
+    .limit(1);
+  if (!automaticEndpoint) return 0;
+
   const since = input.since ?? new Date(Date.now() - 24 * 60 * 60_000);
   const limit = Math.max(1, Math.min(input.limit ?? 200, 1_000));
   const issueIdFromContext = sql<string>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`;
