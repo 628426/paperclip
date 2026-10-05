@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -7,6 +8,7 @@ import {
   createDb,
   documentRevisions,
   documents,
+  EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   heartbeatRuns,
   issueComments,
   issueDocuments,
@@ -54,7 +56,7 @@ describeEmbeddedPostgres("activity service", () => {
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-activity-service-");
     db = createDb(tempDb.connectionString);
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(activityLog);
@@ -70,6 +72,43 @@ describeEmbeddedPostgres("activity service", () => {
 
   afterAll(async () => {
     await tempDb?.cleanup();
+  });
+
+  it("returns unique context and activity linked runs in order without crossing companies", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const agentId = randomUUID();
+    const otherAgentId = randomUUID();
+    const issueId = randomUUID();
+    await db.insert(companies).values([
+      { id: companyId, name: "Target", issuePrefix: `T${companyId.slice(0, 6)}` },
+      { id: otherCompanyId, name: "Other", issuePrefix: `O${otherCompanyId.slice(0, 6)}` },
+    ]);
+    await db.insert(agents).values([
+      { id: agentId, companyId, name: "Target", role: "engineer", adapterType: "process" },
+      { id: otherAgentId, companyId: otherCompanyId, name: "Other", role: "engineer", adapterType: "process" },
+    ]);
+    await db.insert(issues).values({ id: issueId, companyId, title: "Lookup", status: "in_progress", priority: "medium" });
+    const [contextId, activityId, bothId, unrelatedId, foreignId, foreignLinkId] = Array.from({ length: 6 }, () => randomUUID());
+    await db.insert(heartbeatRuns).values([
+      { id: contextId, companyId, agentId, status: "succeeded", contextSnapshot: { issueId }, createdAt: new Date("2026-09-01T01:00:00Z") },
+      { id: activityId, companyId, agentId, status: "succeeded", contextSnapshot: {}, resultJson: { summary: "I will inspect the repository next." }, createdAt: new Date("2026-09-01T02:00:00Z") },
+      { id: bothId, companyId, agentId, status: "succeeded", contextSnapshot: { issueId }, createdAt: new Date("2026-09-01T03:00:00Z") },
+      { id: unrelatedId, companyId, agentId, status: "succeeded", contextSnapshot: { issueId: randomUUID() } },
+      { id: foreignId, companyId: otherCompanyId, agentId: otherAgentId, status: "succeeded", contextSnapshot: { issueId } },
+      { id: foreignLinkId, companyId, agentId, status: "succeeded", contextSnapshot: {} },
+    ]);
+    await db.insert(activityLog).values([
+      ...[activityId, bothId, bothId, foreignId].map((runId) => ({ companyId, actorType: "system", actorId: "system", action: "test.link", entityType: "issue", entityId: issueId, runId })),
+      { companyId: otherCompanyId, actorType: "system", actorId: "system", action: "test.link", entityType: "issue", entityId: issueId, runId: foreignLinkId },
+      { companyId, actorType: "system", actorId: "system", action: "test.link", entityType: "project", entityId: issueId, runId: unrelatedId },
+    ]);
+    const service = activityService(db);
+    const runs = await service.runsForIssue(companyId, issueId);
+    expect(runs.map((run) => run.runId)).toEqual([bothId, activityId, contextId]);
+    await waitForIssueRun(service, companyId, issueId, (run) => run.runId === activityId && run.livenessState === "advanced");
+    expect((await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, activityId)))[0].livenessState).toBe("advanced");
+    expect(await service.runsForIssue(companyId, randomUUID())).toEqual([]);
   });
 
   it("limits company activity lists", async () => {
@@ -216,6 +255,57 @@ describeEmbeddedPostgres("activity service", () => {
       nextAction: "Review the completed output.",
     });
     expect(runs[0]).not.toHaveProperty("contextSnapshot");
+  });
+
+  it("resolves both issue-run link paths once and preserves context within the company", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const agentId = randomUUID();
+    const otherAgentId = randomUUID();
+    const issueId = randomUUID();
+    const otherIssueId = randomUUID();
+    const directRunId = randomUUID();
+    const activityRunId = randomUUID();
+    const bothRunId = randomUUID();
+    const unrelatedRunId = randomUUID();
+    const foreignRunId = randomUUID();
+    const commentId = randomUUID();
+    const wakeCommentId = randomUUID();
+    await db.insert(companies).values([companyId, otherCompanyId].map((id) => ({
+      id, name: "Paperclip", issuePrefix: `T${id.slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    })));
+    await db.insert(agents).values([
+      { id: agentId, companyId, name: "Builder", role: "engineer", status: "idle", adapterType: "codex_local" },
+      { id: otherAgentId, companyId: otherCompanyId, name: "Other", role: "engineer", status: "idle", adapterType: "codex_local" },
+    ]);
+    const base = { companyId, agentId, status: "succeeded", livenessState: "advanced" };
+    await db.insert(heartbeatRuns).values([
+      { ...base, id: directRunId, contextSnapshot: { issueId }, createdAt: new Date("2026-04-21T10:00:00Z") },
+      { ...base, id: activityRunId, contextSnapshot: { issueId: otherIssueId }, createdAt: new Date("2026-04-21T11:00:00Z") },
+      {
+        ...base, id: bothRunId, runtimeMode: "native", createdAt: new Date("2026-04-21T12:00:00Z"),
+        contextSnapshot: { issueId, commentId, wakeCommentId, wakeCommentIds: [wakeCommentId] },
+      },
+      { ...base, id: unrelatedRunId, contextSnapshot: { issueId: otherIssueId } },
+      { ...base, id: foreignRunId, companyId: otherCompanyId, agentId: otherAgentId, contextSnapshot: { issueId } },
+    ]);
+    const link = { companyId, actorType: "system", actorId: "system", action: "issue.updated", entityType: "issue", entityId: issueId };
+    await db.insert(activityLog).values([
+      { ...link, runId: activityRunId },
+      { ...link, runId: bothRunId },
+      { ...link, runId: bothRunId },
+      { ...link, runId: foreignRunId },
+      { ...link, companyId: otherCompanyId, runId: unrelatedRunId },
+      { ...link, runId: null },
+    ]);
+    const runs = await activityService(db).runsForIssue(companyId, issueId);
+    expect(runs.map((run) => run.runId)).toEqual([bothRunId, activityRunId, directRunId]);
+    expect(runs[0]).toMatchObject({
+      runtimeMode: "native", contextIssueId: issueId, contextCommentId: commentId,
+      wakeCommentId, wakeCommentIds: [wakeCommentId],
+    });
+    expect(runs[1]?.contextIssueId).toBe(otherIssueId);
   });
 
   it("backfills missing liveness for completed issue runs before returning the ledger", async () => {
