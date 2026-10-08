@@ -174,6 +174,16 @@ checkout, including a non-primary checkout. Changing projects clears the
 previous worktree choice. Switching from reuse to a new worktree or the project
 workspace restores the project default checkout. Task creation uses the selected company and has
 no separate heading or settings control.
+
+Task execution-policy controls apply the shared schema defaults when stages or
+participants are omitted. An invalid policy shows an unavailable notice and
+disables policy edits while leaving other task properties usable. Refresh to
+retry. Optional browser error monitoring reports only a fixed field category,
+once per mounted control; it never includes the policy or task identifiers.
+Edits in the reviewer and monitor controls retain an explicitly configured
+review-round limit when the last reviewer or monitor is removed, so adding a
+reviewer later uses the saved limit.
+
 Fresh tasks start with an empty request and the last task assignee chosen in that
 company, including a human. If that assignee is unavailable, the CEO is the
 default, or the first eligible agent when the company has no CEO. Explicit launch
