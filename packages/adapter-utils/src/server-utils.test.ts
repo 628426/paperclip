@@ -1131,6 +1131,7 @@ describe("renderPaperclipWakePrompt", () => {
       );
       expect(prompt).toContain("server-authenticated github chat turn");
       expect(prompt).toContain("Make zero Paperclip API calls");
+      expect(prompt).toContain("text answer that does not require structured human input");
       expect(prompt).toContain("answer directly");
       expect(prompt).toContain("exactly one semantic completion");
       expect(prompt).toContain("summary is the user-visible final answer");
