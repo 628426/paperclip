@@ -10509,6 +10509,8 @@ export function heartbeatService(
       .select({
         chatCommunicationGuidance: chatConversations.communicationGuidance,
         chatAssignedAgentId: chatEndpoints.assignedAgentId,
+        // Select only the public command, never the rest of setup state.
+        chatSlackCommand: sql<string | null>`case when ${chatEndpoints.status} in ('active', 'verifying') then ${chatEndpoints.setup}->>'command' end`,
         externalConversationState: externalConversationStateSql(),
         conversationAgentId: issues.conversationAgentId,
         conversationUserId: issues.conversationUserId,
@@ -21077,6 +21079,9 @@ export function heartbeatService(
         wakeComments: safeWakeComments,
         attachmentOmissions: paperclipWakePayload?.attachmentOmissions,
         externalChatProvider: paperclipWakePayload?.externalChatProvider,
+        slackCommand: issueContext?.chatAssignedAgentId === agent.id
+          ? issueContext.chatSlackCommand
+          : null,
         nativeRunner: agent.adapterType === "paperclip_runner",
         interaction: {
           kind: readNonEmptyString(context.interactionKind),
