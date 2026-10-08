@@ -677,6 +677,7 @@ import {
 } from "./effective-run-config-fingerprints.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 import { serverVersion } from "../version.js";
+import { computeTaskDrain, applyTaskDrain, startTaskDrain, stopTaskDrain, readTaskDrain } from "./task-admission.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 
@@ -1352,61 +1353,8 @@ const nativeSessionResumeDispatchTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
-// Task drain: an operator-controlled hold on new run admission, so a caller
-// can wait for active work to finish before it stops the process. The state
-// lives in process memory only — a process restart clears it — and it sits at
-// module scope like activeRunExecutions above, so both the pure
-// resolveHeartbeatSchedulingSuppression() check and every heartbeatService()
-// instance see the same drain.
-let taskDrainState: { startedAt: Date; expiresAt: Date | null } | null = null;
-
-function readTaskDrain(
-  now: Date,
-): { startedAt: Date; expiresAt: Date | null } | null {
-  if (
-    taskDrainState &&
-    taskDrainState.expiresAt !== null &&
-    taskDrainState.expiresAt.getTime() <= now.getTime()
-  ) {
-    taskDrainState = null;
-  }
-  return taskDrainState;
-}
-
-/** Compute the drain a start call would apply, without changing state. */
-export function computeTaskDrain(opts: { ttlMs?: number | null } = {}): {
-  startedAt: Date;
-  expiresAt: Date | null;
-} {
-  const startedAt = new Date();
-  const ttlMs = opts.ttlMs ?? null;
-  const expiresAt =
-    ttlMs === null ? null : new Date(startedAt.getTime() + ttlMs);
-  return { startedAt, expiresAt };
-}
-
-/** Assign the given drain as the current task-drain state. */
-export function applyTaskDrain(drain: {
-  startedAt: Date;
-  expiresAt: Date | null;
-}): void {
-  taskDrainState = drain;
-}
-
-export function startTaskDrain(opts: { ttlMs?: number | null } = {}): {
-  startedAt: Date;
-  expiresAt: Date | null;
-} {
-  const drain = computeTaskDrain(opts);
-  applyTaskDrain(drain);
-  return drain;
-}
-
-export function stopTaskDrain(): { wasActive: boolean } {
-  const wasActive = readTaskDrain(new Date()) !== null;
-  taskDrainState = null;
-  return { wasActive };
-}
+// Shared with HTTP admission so an idle hold fences work before inspection.
+export { computeTaskDrain, applyTaskDrain, startTaskDrain, stopTaskDrain } from "./task-admission.js";
 
 /**
  * Report the task-drain state for this process only. `activeRuns` and
@@ -1421,11 +1369,13 @@ export function getTaskDrainStatus(): {
   activeRuns: number;
   pendingWakes: number;
   quiescent: boolean;
+  ownerId?: string;
 } {
   const state = readTaskDrain(new Date());
   const activeRuns = activeRunExecutionPromises.size;
   const pendingWakes = activeWakeupPromises.size;
   return {
+    ...(state?.ownerId ? { ownerId: state.ownerId } : {}),
     draining: state !== null,
     startedAt: state?.startedAt ?? null,
     expiresAt: state?.expiresAt ?? null,
