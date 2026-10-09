@@ -93,4 +93,40 @@ type State = { jit: string; readOnly: string; pid: number };
       expect(await state(db)).toEqual(before);
     } finally { spy.mockRestore(); }
   });
+
+  it.each([
+    ["list", "on"], ["count", "on"], ["list", "off"], ["count", "off"],
+  ] as const)("restores the caller transaction after %s (JIT=%s)", async (kind, jit) => {
+    const before = await state(db);
+    await db.transaction(async (outer) => {
+      await outer.execute(sql`SELECT set_config('jit', ${jit}, true)`);
+      const caller = await state(outer);
+      const svc = issueService(outer as unknown as Db);
+      const result = kind === "list" ? await svc.list(companyId, { limit: 100 }) : await svc.count(companyId);
+      expect(Array.isArray(result) ? result.length : result).toBe(2);
+      expect(await state(outer)).toEqual(caller);
+      // A borrowed read must also retain the caller's write capability.
+      await outer.update(schema.companies).set({ name: "Issue reads" }).where(sql`${schema.companies.id} = ${companyId}`);
+    });
+    expect(await state(db)).toEqual(before);
+  });
+
+  it.each(["list", "count"] as const)("restores the caller transaction after a %s failure", async (kind) => {
+    await db.transaction(async (outer) => {
+      const caller = await state(outer);
+      const failure = new Error("Nested issue read failed");
+      const transaction = outer.transaction.bind(outer);
+      const spy = vi.spyOn(outer, "transaction").mockImplementation(
+        async <T>(body: (tx: Tx) => Promise<T>): Promise<T> => transaction(async (tx) => {
+          const select = vi.spyOn(tx, "select").mockImplementation(() => { throw failure; });
+          try { return await body(tx); } finally { select.mockRestore(); }
+        }),
+      );
+      try {
+        const svc = issueService(outer as unknown as Db);
+        await expect(kind === "list" ? svc.list(companyId, { limit: 100 }) : svc.count(companyId)).rejects.toBe(failure);
+        expect(await state(outer)).toEqual(caller);
+      } finally { spy.mockRestore(); }
+    });
+  });
 });

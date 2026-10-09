@@ -35,6 +35,10 @@ then page issue IDs before projecting descriptions. Route boolean defaults and
 enrichment flags retain this path; selective filters and search retain per-issue
 activity probes. Ordering still excludes local inbox bookkeeping activity.
 
+The main list/count reads disable JIT in short read-only transactions. When
+called through an existing transaction, the read uses a savepoint and restores
+the caller's JIT setting before releasing it. Errors roll back that savepoint.
+
 Issue secret redaction reads only registry metadata from runs matching the
 company and either the current or legacy issue ID. Migration 0294 adds the
 legacy `paperclipIssue.id` expression index; the current `issueId` index already

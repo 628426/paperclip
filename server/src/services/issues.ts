@@ -6621,6 +6621,25 @@ export function issueService(db: Db) {
   const instanceSettings = instanceSettingsService(db);
   const treeControlSvc = issueTreeControlService(db);
 
+  type ReadTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+  async function readIssueQuery<T>(read: (tx: ReadTransaction) => Promise<T>): Promise<T> {
+    // A transaction-backed service creates a savepoint, whose release retains
+    // SET LOCAL changes. Restore that caller's setting before releasing it.
+    const nested = !("$client" in db);
+    return db.transaction(async (tx) => {
+      const previousJit = nested
+        ? (await tx.execute<{ jit: string }>(sql`SELECT current_setting('jit') AS jit`))[0].jit
+        : undefined;
+      await tx.execute(sql`SET LOCAL jit = off`);
+      const result = await read(tx);
+      if (previousJit !== undefined) {
+        await tx.execute(sql`SELECT set_config('jit', ${previousJit}, true)`);
+      }
+      // On failure, rollback restores the savepoint's settings automatically.
+      return result;
+    }, { accessMode: "read only" });
+  }
+
   function normalizeCreateIssueTitle(title: string) {
     return title.trim().replace(/\s+/g, " ").toLowerCase();
   }
@@ -8024,9 +8043,7 @@ export function issueService(db: Db) {
       ) {
         conditions.push(ne(issues.originKind, "routine_execution"));
       }
-      const pageRows = await db.transaction(async (tx) => {
-        // Avoid repeated JIT compilation without changing this read or its predicates.
-        await tx.execute(sql`SET LOCAL jit = off`);
+      const pageRows = await readIssueQuery(async (tx) => {
         const priorityOrder = sql`CASE ${issues.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END`;
         const searchOrder = sql<number>`-task_search.score`;
         const issueSource = tx.select(issueListSelect).from(issues);
@@ -8130,7 +8147,7 @@ export function issueService(db: Db) {
               }))
           : pageQuery;
         return await resultQuery;
-      }, { accessMode: "read only" });
+      });
       const rows = pageRows.map((row) => ({
         ...row,
         description: decodeDatabaseTextPreview(
@@ -8337,13 +8354,12 @@ export function issueService(db: Db) {
       }
       if (!shouldIncludePluginOperationIssues(filters))
         conditions.push(nonPluginOperationIssueCondition());
-      const [row] = await db.transaction(async (tx) => {
-        await tx.execute(sql`SET LOCAL jit = off`);
+      const [row] = await readIssueQuery(async (tx) => {
         return tx
           .select({ count: sql<number>`count(*)` })
           .from(issues)
           .where(and(...conditions));
-      }, { accessMode: "read only" });
+      });
       return Number(row?.count ?? 0);
     },
 
