@@ -49,6 +49,13 @@ application. Migration 0294 uses `IF NOT EXISTS`, and later starts skip an
 already recorded migration. Its first index build runs transactionally and can
 delay startup and block writes to `heartbeat_runs` until it completes.
 
+### Run history read performance
+
+Run lists decode context and result JSON through lateral records instead of
+repeatedly decompressing the same stored JSON for each summary field. Summary
+and legacy-encoding reads do not inspect result JSON. Projection limits, null
+handling, filters, ordering and pagination remain unchanged.
+
 ## Dependency Lockfile Policy
 
 GitHub Actions owns `pnpm-lock.yaml`.

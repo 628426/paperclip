@@ -3447,6 +3447,43 @@ const heartbeatRunListResultColumns = {
   >`${heartbeatRuns.resultJson} ->> 'costUsd'`.as("resultCostUsdCamel"),
 } as const;
 
+// Decode the summary fields together, rather than fetching and decompressing
+// the same TOAST value for every projected key. Non-object
+// snapshots still produce null fields, as the original ->> projections did.
+const heartbeatRunListContextRecord = sql`LATERAL jsonb_to_record(
+  CASE WHEN jsonb_typeof(${heartbeatRuns.contextSnapshot}) = 'object'
+    THEN ${heartbeatRuns.contextSnapshot} ELSE '{}'::jsonb END
+) AS run_list_context("issueId" text, "taskId" text, "taskKey" text,
+  "commentId" text, "wakeCommentId" text, "wakeReason" text,
+  "wakeSource" text, "wakeTriggerDetail" text)`;
+
+const heartbeatRunDecodedListContextColumns = {
+  contextIssueId: sql<string | null>`run_list_context."issueId"`.as("contextIssueId"),
+  contextTaskId: sql<string | null>`run_list_context."taskId"`.as("contextTaskId"),
+  contextTaskKey: sql<string | null>`run_list_context."taskKey"`.as("contextTaskKey"),
+  contextCommentId: sql<string | null>`run_list_context."commentId"`.as("contextCommentId"),
+  contextWakeCommentId: sql<string | null>`run_list_context."wakeCommentId"`.as("contextWakeCommentId"),
+  contextWakeReason: sql<string | null>`run_list_context."wakeReason"`.as("contextWakeReason"),
+  contextWakeSource: sql<string | null>`run_list_context."wakeSource"`.as("contextWakeSource"),
+  contextWakeTriggerDetail: sql<string | null>`run_list_context."wakeTriggerDetail"`.as("contextWakeTriggerDetail"),
+} as const;
+
+const heartbeatRunListResultRecord = sql`LATERAL jsonb_to_record(
+  CASE WHEN jsonb_typeof(${heartbeatRuns.resultJson}) = 'object'
+    THEN ${heartbeatRuns.resultJson} ELSE '{}'::jsonb END
+) AS run_list_result(summary text, result text, message text, error text,
+  total_cost_usd text, cost_usd text, "costUsd" text)`;
+
+const heartbeatRunDecodedListResultColumns = {
+  resultSummary: sql<string | null>`left(run_list_result.summary, ${HEARTBEAT_RUN_RESULT_SUMMARY_MAX_CHARS})`.as("resultSummary"),
+  resultResult: sql<string | null>`left(run_list_result.result, ${HEARTBEAT_RUN_RESULT_SUMMARY_MAX_CHARS})`.as("resultResult"),
+  resultMessage: sql<string | null>`left(run_list_result.message, ${HEARTBEAT_RUN_RESULT_SUMMARY_MAX_CHARS})`.as("resultMessage"),
+  resultError: sql<string | null>`left(run_list_result.error, ${HEARTBEAT_RUN_RESULT_SUMMARY_MAX_CHARS})`.as("resultError"),
+  resultTotalCostUsd: sql<string | null>`run_list_result.total_cost_usd`.as("resultTotalCostUsd"),
+  resultCostUsd: sql<string | null>`run_list_result.cost_usd`.as("resultCostUsd"),
+  resultCostUsdCamel: sql<string | null>`run_list_result."costUsd"`.as("resultCostUsdCamel"),
+} as const;
+
 // Reserve at most 9 KiB for diagnostics in the reduced result. An oversized
 // multibyte field uses a conservative four-byte-per-character prefix, with a
 // visible pointer to the full (adapter-bounded) run error and transcript.
@@ -29808,34 +29845,38 @@ export function heartbeatService(
         options.offset >= 0
           ? options.offset
           : 0;
-      const query = db
+      const contextQuery = db
         .select(
           summary
             ? {
                 ...heartbeatRunSummaryListColumns,
-                ...heartbeatRunListContextColumns,
+                ...heartbeatRunDecodedListContextColumns,
               }
             : safeForLegacyEncoding
               ? {
                   ...heartbeatRunListColumns,
                   error: sql<string | null>`NULL`.as("error"),
-                  ...heartbeatRunListContextColumns,
+                  ...heartbeatRunDecodedListContextColumns,
                 }
               : {
                   ...heartbeatRunListColumns,
-                  ...heartbeatRunListContextColumns,
-                  ...heartbeatRunListResultColumns,
+                  ...heartbeatRunDecodedListContextColumns,
+                  ...heartbeatRunDecodedListResultColumns,
                 },
         )
         .from(heartbeatRuns)
-        .where(and(
+        .leftJoin(heartbeatRunListContextRecord, sql`true`);
+      // Summary and legacy-encoding reads must not inspect result JSON.
+      const query = summary || safeForLegacyEncoding
+        ? contextQuery
+        : contextQuery.leftJoin(heartbeatRunListResultRecord, sql`true`);
+      const rows = await query.where(and(
           eq(heartbeatRuns.companyId, companyId),
           agentId ? eq(heartbeatRuns.agentId, agentId) : undefined,
           options.status ? eq(heartbeatRuns.status, options.status) : undefined,
         ))
-        .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id));
-
-      const rows = await query.limit(resolvedLimit).offset(offset);
+        .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id))
+        .limit(resolvedLimit).offset(offset);
       return rows.map((row) => {
         const {
           contextIssueId,

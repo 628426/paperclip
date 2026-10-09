@@ -1,11 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { desc, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { agents, companies, createDb, heartbeatRuns, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
-import { boundHeartbeatRunEventPayloadForStorage, heartbeatService } from "../services/heartbeat.ts";
+import {
+  boundHeartbeatRunEventPayloadForStorage,
+  heartbeatService,
+  summarizeHeartbeatRunContextSnapshot,
+  summarizeHeartbeatRunListResultJson,
+} from "../services/heartbeat.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -96,7 +102,7 @@ describeEmbeddedPostgres("heartbeat list", () => {
       if (originalDescriptor) {
         Object.defineProperty(heartbeatRuns, "processGroupId", originalDescriptor);
       } else {
-        delete (heartbeatRuns as Record<string, unknown>).processGroupId;
+        delete (heartbeatRuns as unknown as Record<string, unknown>).processGroupId;
       }
     }
   });
@@ -308,6 +314,59 @@ describeEmbeddedPostgres("heartbeat list", () => {
     expect(firstPage.map((run) => run.id)).toEqual(ids.slice(0, 2));
     expect(secondPage.map((run) => run.id)).toEqual(ids.slice(2));
     expect(await service.list(otherCompanyId, agentId, 2, { status: "failed" })).toEqual([]);
+  });
+
+  it.each([false, true])("preserves the original JSON projections for every JSON value type (summary=%s)", async (summary) => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    await db.insert(companies).values({ id: companyId, name: "Projection", issuePrefix: "PROJECTION" });
+    await db.insert(agents).values({ id: agentId, companyId, name: "Reader", role: "engineer", adapterType: "codex_local" });
+    const snapshots: unknown[] = [
+      undefined, null, {}, [], ["value"], "scalar", 42, true,
+      {
+        issueId: " task ", taskId: 123, taskKey: { nested: "value" }, commentId: [1, true],
+        wakeCommentId: false, wakeReason: null, wakeSource: "", wakeTriggerDetail: "\n wake \n",
+        summary: "😀".repeat(600), result: ["value", 2], message: { nested: true }, error: false,
+        total_cost_usd: "1.25", cost_usd: 2.5, costUsd: "Infinity",
+        privatePayload: "large context".repeat(20_000),
+      },
+    ];
+    await db.insert(heartbeatRuns).values(snapshots.map((value, index) => ({
+      companyId, agentId, status: "succeeded", createdAt: new Date(1_700_000_000_000 + index),
+      contextSnapshot: value === undefined ? sql`NULL` : sql`${JSON.stringify(value)}::jsonb`,
+      resultJson: value === undefined ? sql`NULL` : sql`${JSON.stringify(value)}::jsonb`,
+    })));
+    // These are the original ->> expressions. Compare their mapped results,
+    // including non-object roots, JSON nulls, nested values and multibyte caps.
+    const reference = await db.select({
+      id: heartbeatRuns.id,
+      context: sql<Record<string, string | null>>`jsonb_build_object(
+        'issueId', ${heartbeatRuns.contextSnapshot} ->> 'issueId',
+        'taskId', ${heartbeatRuns.contextSnapshot} ->> 'taskId',
+        'taskKey', ${heartbeatRuns.contextSnapshot} ->> 'taskKey',
+        'commentId', ${heartbeatRuns.contextSnapshot} ->> 'commentId',
+        'wakeCommentId', ${heartbeatRuns.contextSnapshot} ->> 'wakeCommentId',
+        'wakeReason', ${heartbeatRuns.contextSnapshot} ->> 'wakeReason',
+        'wakeSource', ${heartbeatRuns.contextSnapshot} ->> 'wakeSource',
+        'wakeTriggerDetail', ${heartbeatRuns.contextSnapshot} ->> 'wakeTriggerDetail')`,
+      result: sql<Parameters<typeof summarizeHeartbeatRunListResultJson>[0]>`jsonb_build_object(
+        'summary', left(${heartbeatRuns.resultJson} ->> 'summary', 500),
+        'result', left(${heartbeatRuns.resultJson} ->> 'result', 500),
+        'message', left(${heartbeatRuns.resultJson} ->> 'message', 500),
+        'error', left(${heartbeatRuns.resultJson} ->> 'error', 500),
+        'totalCostUsd', ${heartbeatRuns.resultJson} ->> 'total_cost_usd',
+        'costUsd', ${heartbeatRuns.resultJson} ->> 'cost_usd',
+        'costUsdCamel', ${heartbeatRuns.resultJson} ->> 'costUsd')`,
+    }).from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId))
+      .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id));
+    const runs = await heartbeatService(db).list(companyId, agentId, 100, { summary });
+    expect(runs.map(({ id, contextSnapshot, resultJson }) => ({ id, contextSnapshot, resultJson }))).toEqual(
+      reference.map(({ id, context, result }) => ({
+        id, contextSnapshot: summarizeHeartbeatRunContextSnapshot(context),
+        resultJson: summary ? null : summarizeHeartbeatRunListResultJson(result),
+      })),
+    );
+    expect(runs.every(run => run.createdAt instanceof Date && run.updatedAt instanceof Date)).toBe(true);
   });
 
   it("bounds oversized legacy result json payloads on getRun", async () => {
