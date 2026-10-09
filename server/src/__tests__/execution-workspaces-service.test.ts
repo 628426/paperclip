@@ -12,6 +12,7 @@ import {
   agents,
   companies,
   createDb,
+  EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   executionWorkspaces,
   heartbeatRuns,
   issueComments,
@@ -32,6 +33,7 @@ import {
   EXECUTION_WORKSPACE_REOPEN_PENDING_METADATA_KEY,
   EXECUTION_WORKSPACE_REOPEN_PENDING_SINCE_METADATA_KEY,
   executionWorkspaceService,
+  TERMINAL_WORKSPACE_REAPER_GIT_BACKOFF_MS,
   deriveExecutionWorkspaceDeliveryState,
   mergeExecutionWorkspaceConfig,
   metadataHasReopenPendingConsumption,
@@ -264,7 +266,7 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
       // tests further down.
       workspaceReaperCooldownDays: 0,
     });
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(workspaceRuntimeServices);
@@ -604,11 +606,126 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
     }
   }, 20_000);
 
+  it.each(["source", "descendant", "cooldown", "active run", "reopen"] as const)(
+    "does not inspect Git for a reaper candidate blocked by %s",
+    async (gate) => {
+      const seeded = await seedTerminalWorkspace({
+        childStatus: gate === "descendant" ? "todo" : undefined,
+        activeRun: gate === "active run",
+      });
+      if (gate === "source") {
+        await db.update(issues).set({ status: "in_progress" }).where(eq(issues.id, seeded.sourceIssueId));
+      }
+      if (gate === "reopen") {
+        await db.update(executionWorkspaces).set({ metadata: {
+          [EXECUTION_WORKSPACE_REOPEN_PENDING_METADATA_KEY]: true,
+          [EXECUTION_WORKSPACE_REOPEN_PENDING_SINCE_METADATA_KEY]: new Date().toISOString(),
+        } }).where(eq(executionWorkspaces.id, seeded.executionWorkspaceId));
+      }
+      const service = executionWorkspaceService(db, { workspaceReaperCooldownDays: gate === "cooldown" ? 7 : 0 });
+      const scan = vi.spyOn(workspaceGitOperationScheduler, "run");
+      try {
+        const result = await service.sweepTerminalWorkspaces();
+        expect(result).toMatchObject({ checked: 1, archived: 0 });
+        expect(scan).not.toHaveBeenCalled();
+        await expect(fs.access(seeded.worktreePath)).resolves.toBeUndefined();
+      } finally {
+        scan.mockRestore();
+      }
+    },
+  );
+
+  it("backs off undelivered reaper scans but keeps explicit close checks fresh", async () => {
+    const seeded = await seedTerminalWorkspace();
+    let clockMs = Date.now() + 1_000;
+    const service = executionWorkspaceService(db, {
+      now: () => new Date(clockMs),
+      workspaceReaperCooldownDays: 0,
+    });
+    const scan = vi.spyOn(workspaceGitOperationScheduler, "run");
+    try {
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(1);
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(1);
+      await fs.writeFile(path.join(seeded.worktreePath, "new-work.txt"), "uncommitted\n");
+      const readiness = await service.getCloseReadiness(seeded.executionWorkspaceId);
+      expect(readiness?.git?.hasUntrackedFiles).toBe(true);
+      expect(scan).toHaveBeenCalledTimes(2);
+      clockMs += TERMINAL_WORKSPACE_REAPER_GIT_BACKOFF_MS;
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(3);
+    } finally {
+      scan.mockRestore();
+    }
+  });
+
+  it("retries a failed reaper inspection after backoff and can archive the workspace", async () => {
+    const seeded = await seedTerminalWorkspace({ mergedPr: true });
+    let clockMs = Date.now() + 1_000;
+    const service = executionWorkspaceService(db, {
+      now: () => new Date(clockMs),
+      workspaceReaperCooldownDays: 0,
+      resolvePullRequestDetails: async (companyId, reference) =>
+        pullRequestDetailsByKey.get(`${companyId}:${reference.number}`) ?? { state: "unknown" },
+    });
+    const originalRun = workspaceGitOperationScheduler.run.bind(workspaceGitOperationScheduler);
+    const scan = vi.spyOn(workspaceGitOperationScheduler, "run")
+      .mockRejectedValueOnce(new Error("Git status temporarily unavailable"))
+      .mockImplementation(originalRun);
+    try {
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 0, skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(1);
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 0, skippedUndelivered: 1 });
+      expect(scan).toHaveBeenCalledTimes(1);
+      await expect(fs.access(seeded.worktreePath)).resolves.toBeUndefined();
+      clockMs += TERMINAL_WORKSPACE_REAPER_GIT_BACKOFF_MS;
+      expect(await service.sweepTerminalWorkspaces()).toMatchObject({ archived: 1 });
+      // The retry and fresh cleanup checks inspect Git; cleanup can check more
+      // than once as it moves through its lifecycle locks.
+      expect(scan.mock.calls.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      scan.mockRestore();
+    }
+  });
+
+  it.each(["workspace", "lifecycle", "issue"] as const)(
+    "invalidates reaper Git backoff when %s state changes",
+    async (change) => {
+      const seeded = await seedTerminalWorkspace();
+      const clockMs = Date.now() + 1_000;
+      const service = executionWorkspaceService(db, {
+        now: () => new Date(clockMs),
+        workspaceReaperCooldownDays: 0,
+      });
+      const scan = vi.spyOn(workspaceGitOperationScheduler, "run");
+      try {
+        await service.sweepTerminalWorkspaces();
+        expect(scan).toHaveBeenCalledTimes(1);
+        if (change === "issue") {
+          await db.update(issues).set({ completedAt: new Date(clockMs - 100) })
+            .where(eq(issues.id, seeded.sourceIssueId));
+        } else {
+          await db.update(executionWorkspaces).set(change === "workspace"
+            ? { updatedAt: new Date(clockMs - 100) }
+            : { metadata: { [EXECUTION_WORKSPACE_LIFECYCLE_GENERATION_METADATA_KEY]: 1 } })
+            .where(eq(executionWorkspaces.id, seeded.executionWorkspaceId));
+        }
+        await service.sweepTerminalWorkspaces();
+        expect(scan).toHaveBeenCalledTimes(2);
+      } finally {
+        scan.mockRestore();
+      }
+    },
+  );
+
   it("skips a sweep that starts while another sweep runs", async () => {
     // The scheduler can start a second sweep before the first one finishes. The
     // sweeps share the cursor and the boundary. A concurrent sweep must skip
     // instead of running, so it cannot corrupt the shared rotation state.
-    const seeded = await seedAncestryTerminalWorkspace();
+    // Predate the frozen sweep boundary instead of relying on PostgreSQL and
+    // JavaScript clocks agreeing within one millisecond.
+    const seeded = await seedAncestryTerminalWorkspace({ updatedAt: new Date("2020-01-01T00:00:00Z") });
 
     // Start the first sweep and do not wait. An async function runs its body up
     // to the first await, so the in-progress flag is set before the second call

@@ -33,7 +33,7 @@ export function sidebarBadgeService(db: Db) {
         unreadTouchedIssues?: number;
       },
     ): Promise<SidebarBadges> => {
-      const actionableApprovals = await db
+      const approvalRowsQuery = db
         .select({ id: approvals.id, updatedAt: approvals.updatedAt })
         .from(approvals)
         .where(
@@ -41,12 +41,9 @@ export function sidebarBadgeService(db: Db) {
             eq(approvals.companyId, companyId),
             inArray(approvals.status, ACTIONABLE_APPROVAL_STATUSES),
           ),
-        )
-        .then((rows) =>
-          rows.filter((row) => !isDismissed(extra?.dismissals ?? new Map(), `approval:${row.id}`, row.updatedAt)).length
         );
 
-      const latestRunByAgent = await db
+      const latestRunByAgentQuery = db
         .selectDistinctOn([heartbeatRuns.agentId], {
           id: heartbeatRuns.id,
           runStatus: heartbeatRuns.status,
@@ -63,6 +60,14 @@ export function sidebarBadgeService(db: Db) {
           ),
         )
         .orderBy(heartbeatRuns.agentId, desc(heartbeatRuns.createdAt));
+
+      const [approvalRows, latestRunByAgent] = await Promise.all([
+        approvalRowsQuery,
+        latestRunByAgentQuery,
+      ]);
+      const actionableApprovals = approvalRows.filter((row) =>
+        !isDismissed(extra?.dismissals ?? new Map(), `approval:${row.id}`, row.updatedAt)
+      ).length;
 
       const failedRuns = latestRunByAgent.filter((row) =>
         FAILED_HEARTBEAT_STATUSES.includes(row.runStatus)

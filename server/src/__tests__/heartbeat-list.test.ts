@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -23,7 +23,7 @@ describeEmbeddedPostgres("heartbeat list", () => {
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-heartbeat-list-");
     db = createDb(tempDb.connectionString);
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(heartbeatRuns);
@@ -226,6 +226,88 @@ describeEmbeddedPostgres("heartbeat list", () => {
         wakeReason: "issue_assigned",
       },
     });
+  });
+
+  it("bounds the default page and supports stable offset pagination", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const runIds = Array.from({ length: 1005 }, () => randomUUID());
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "running",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(heartbeatRuns).values(
+      runIds.map((id, index) => ({
+        id,
+        companyId,
+        agentId,
+        invocationSource: "assignment" as const,
+        status: "succeeded" as const,
+        createdAt: new Date(Date.UTC(2026, 7, 1, 0, 0, 0, index)),
+      })),
+    );
+
+    const service = heartbeatService(db);
+    const firstPage = await service.list(companyId, agentId, undefined, {
+      summary: true,
+    });
+    const finalPage = await service.list(companyId, agentId, 10, {
+      summary: true,
+      offset: 1000,
+    });
+
+    expect(firstPage).toHaveLength(200);
+    expect(firstPage[0]?.id).toBe(runIds[1004]);
+    expect(firstPage[199]?.id).toBe(runIds[805]);
+    expect(await service.list(companyId, agentId, 5000, { summary: true })).toHaveLength(1000);
+    expect(finalPage.map((run) => run.id)).toEqual(runIds.slice(0, 5).reverse());
+    expect(
+      finalPage.every(
+        (run) => !firstPage.some((firstRun) => firstRun.id === run.id),
+      ),
+    ).toBe(true);
+  });
+
+  it("filters by status before pagination and keeps tied timestamps company and agent scoped", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const agentId = randomUUID();
+    const otherAgentId = randomUUID();
+    await db.insert(companies).values([companyId, otherCompanyId].map((id) => ({
+      id, name: "Paperclip", issuePrefix: `T${id.slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    })));
+    await db.insert(agents).values([
+      { id: agentId, companyId, name: "Builder", role: "engineer", adapterType: "codex_local" },
+      { id: otherAgentId, companyId: otherCompanyId, name: "Other", role: "engineer", adapterType: "codex_local" },
+    ]);
+    const ids = Array.from({ length: 4 }, () => randomUUID()).sort().reverse();
+    const createdAt = new Date("2026-08-01T12:00:00Z");
+    await db.insert(heartbeatRuns).values([
+      ...ids.map((id) => ({ id, companyId, agentId, status: "failed", createdAt })),
+      { companyId, agentId, status: "succeeded", createdAt: new Date("2026-08-02T12:00:00Z") },
+      { companyId: otherCompanyId, agentId: otherAgentId, status: "failed", createdAt },
+    ]);
+    const service = heartbeatService(db);
+    const firstPage = await service.list(companyId, agentId, 2, { summary: true, status: "failed" });
+    const secondPage = await service.list(companyId, agentId, 2, { summary: true, status: "failed", offset: 2 });
+    expect(firstPage.map((run) => run.id)).toEqual(ids.slice(0, 2));
+    expect(secondPage.map((run) => run.id)).toEqual(ids.slice(2));
+    expect(await service.list(otherCompanyId, agentId, 2, { status: "failed" })).toEqual([]);
   });
 
   it("bounds oversized legacy result json payloads on getRun", async () => {

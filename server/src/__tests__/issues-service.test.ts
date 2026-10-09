@@ -10,6 +10,7 @@ import {
   createDb,
   documentRevisions,
   documents,
+  EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   environments,
   executionWorkspaces,
   goals,
@@ -536,7 +537,7 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     db = createDb(tempDb.connectionString);
     svc = issueService(db);
     await ensureIssueRelationsTable(db);
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.delete(issueComments);
@@ -2536,6 +2537,85 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     expect(result.find((issue) => issue.id === olderIssueId)?.lastActivityAt?.toISOString()).toBe(
       "2026-03-26T10:00:00.000Z",
     );
+  });
+
+  it("preserves batched activity ordering across filters, search, pagination and timestamp removal", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    const otherCompanyId = await seedAssignableAgentCompany();
+    const agentId = randomUUID();
+    await db.insert(agents).values({ id: agentId, companyId, name: "Ordering agent", role: "engineer", adapterType: "process" });
+    const issueIds = Array.from({ length: 6 }, () => randomUUID());
+    const timestamp = (hour: number) => new Date(`2026-03-26T${String(hour).padStart(2, "0")}:00:00.000Z`);
+    await db.insert(issues).values(issueIds.map((id, index) => ({
+      id, companyId, title: "needle activity ordering", status: index % 2 === 0 ? "todo" : "in_progress",
+      priority: index === 0 ? "high" : "medium", updatedAt: timestamp(10),
+      assigneeAgentId: index % 2 === 0 ? agentId : null,
+    })));
+    await db.insert(issues).values([
+      { companyId, title: "needle hidden ordering", priority: "critical", hiddenAt: timestamp(10) },
+      { companyId: otherCompanyId, title: "needle foreign ordering", priority: "critical" },
+    ]);
+    const [latestComment] = await db.insert(issueComments).values([
+      { companyId, issueId: issueIds[1]!, body: "Future comment", createdAt: timestamp(16) },
+      { companyId, issueId: issueIds[2]!, body: "Recent comment", createdAt: timestamp(12) },
+    ]).returning();
+    const [latestLog] = await db.insert(activityLog).values([
+      { companyId, actorType: "system", actorId: "system", action: "issue.updated", entityType: "issue", entityId: issueIds[3]!, createdAt: timestamp(15) },
+      ...["issue.read_marked", "issue.read_unmarked", "issue.inbox_archived", "issue.inbox_unarchived"].map((action) => ({
+        companyId, actorType: "user", actorId: "reader", action, entityType: "issue", entityId: issueIds[4]!, createdAt: timestamp(20),
+      })),
+      { companyId: otherCompanyId, actorType: "system", actorId: "system", action: "issue.updated", entityType: "issue", entityId: issueIds[5]!, createdAt: timestamp(23) },
+      { companyId, actorType: "system", actorId: "system", action: "issue.updated", entityType: "agent", entityId: issueIds[5]!, createdAt: timestamp(22) },
+    ]).returning();
+
+    const check = async (filters: Parameters<typeof svc.list>[1] = {}) => {
+      // The previous reader's canonical expression is the reference contract.
+      const activityAt = sql`GREATEST(${issues.updatedAt},
+        COALESCE((SELECT MAX(created_at) FROM issue_comments WHERE issue_id = ${issues.id} AND company_id = ${companyId}), to_timestamp(0)),
+        COALESCE((SELECT MAX(created_at) FROM activity_log WHERE company_id = ${companyId} AND entity_type = 'issue'
+          AND entity_id = ${issues.id}::text AND action NOT IN ('issue.read_marked', 'issue.read_unmarked', 'issue.inbox_archived', 'issue.inbox_unarchived')), to_timestamp(0)))`;
+      const direction = filters?.sortDir === "asc" ? sql`ASC` : sql`DESC`;
+      const ordering = filters?.sortField === "id" ? sql`${issues.id} ${direction}`
+        : filters?.sortField === "updated" ? sql`${activityAt} ${direction}, ${issues.updatedAt} ${direction}, ${issues.id} ${direction}`
+        : sql`CASE ${issues.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
+            ${activityAt} DESC, ${issues.updatedAt} DESC, ${issues.id} DESC`;
+      const reference = await db.execute<{ id: string }>(sql`
+        SELECT ${issues.id} FROM ${issues} WHERE ${issues.companyId} = ${companyId} AND ${issues.hiddenAt} IS NULL
+          ${filters?.status ? sql`AND ${issues.status} = ${filters.status}` : sql``}
+          ${filters?.assigneeAgentId ? sql`AND ${issues.assigneeAgentId} = ${filters.assigneeAgentId}` : sql``}
+          ${filters?.afterId ? sql`AND ${issues.id} > ${filters.afterId}::uuid` : sql``}
+        ORDER BY ${ordering}
+        ${filters?.limit ? sql`LIMIT ${filters.limit}` : sql``} OFFSET ${filters?.offset ?? 0}
+      `);
+      const actual = await svc.list(companyId, filters);
+      expect(actual.map((issue) => issue.id)).toEqual(reference.map((row) => row.id));
+      return actual;
+    };
+    await check();
+    await check({ limit: 2, offset: 2 });
+    await check({ status: "todo", assigneeAgentId: agentId, limit: 2 });
+    await check({ sortField: "updated", sortDir: "asc", limit: 3 });
+    await check({ sortField: "updated", sortDir: "desc", offset: 1, limit: 3 });
+    const routeDefaults = {
+      includeRoutineExecutions: true, excludeRoutineExecutions: false,
+      includePluginOperations: false, includeBlockedBy: false,
+      includeBlockedInboxAttention: false, includeLiveDescendantSummary: false,
+    };
+    await check({ ...routeDefaults, sortField: "updated", sortDir: "desc", offset: 1, limit: 3 });
+    await check({ ...routeDefaults, includeLiveDescendantSummary: true, limit: 3 });
+    await check({ ...routeDefaults, status: "todo", limit: 3 });
+    await check({ q: "needle", limit: 3 });
+    await check({ q: "needle", status: "todo", sortField: "updated", sortDir: "asc", limit: 2, offset: 1 });
+    await check({ status: "cancelled" });
+    await check({ sortField: "id", sortDir: "asc", limit: 2 });
+    await check({ sortField: "id", sortDir: "asc", afterId: [...issueIds].sort()[2], limit: 2 });
+
+    // A live aggregate follows removals and backdated issue updates immediately.
+    await db.delete(issueComments).where(eq(issueComments.id, latestComment!.id));
+    await db.delete(activityLog).where(eq(activityLog.id, latestLog!.id));
+    await db.update(issues).set({ updatedAt: timestamp(8) }).where(eq(issues.id, issueIds[1]!));
+    const updated = await check({ sortField: "updated", sortDir: "desc" });
+    expect(updated.find((issue) => issue.id === issueIds[1])?.lastActivityAt?.toISOString()).toBe(timestamp(8).toISOString());
   });
 
   it("paginates earlier comments in descending order from an anchor comment", async () => {

@@ -9,6 +9,7 @@ const mockAgentService = vi.hoisted(() => ({
 }));
 
 const mockHeartbeatService = vi.hoisted(() => ({
+  list: vi.fn(),
   buildRunOutputSilence: vi.fn(),
   decorateActiveRunStatus: vi.fn(),
   getRunIssueSummary: vi.fn(),
@@ -323,6 +324,7 @@ describe("agent live run routes", () => {
     });
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
     mockHeartbeatService.buildRunOutputSilence.mockResolvedValue(null);
+    mockHeartbeatService.list.mockResolvedValue([]);
     mockHeartbeatService.decorateActiveRunStatus.mockImplementation((run) => ({
       ...run,
       currentStatusMessage: null,
@@ -392,6 +394,56 @@ describe("agent live run routes", () => {
       skipped: 0,
       skipReasons: [],
     });
+  });
+
+  it("uses the bounded heartbeat run default when pagination is omitted", async () => {
+    const res = await requestApp(await createApp(), (baseUrl) =>
+      request(baseUrl).get("/api/companies/company-1/heartbeat-runs"),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockHeartbeatService.list).toHaveBeenCalledWith(
+      "company-1",
+      undefined,
+      undefined,
+      { summary: false, offset: 0 },
+    );
+  });
+
+  it("passes validated heartbeat run pagination to the service", async () => {
+    const res = await requestApp(await createApp(), (baseUrl) =>
+      request(baseUrl).get(
+        "/api/companies/company-1/heartbeat-runs?agentId=agent-1&limit=25&offset=50&summary=true&status=failed",
+      ),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockHeartbeatService.list).toHaveBeenCalledWith(
+      "company-1",
+      "agent-1",
+      25,
+      { summary: true, offset: 50, status: "failed" },
+    );
+  });
+
+  it.each([
+    "limit=0",
+    "limit=1001",
+    "limit=1.5",
+    "limit=invalid",
+    "offset=-1",
+    "offset=1.5",
+    "offset=invalid",
+    "offset=9007199254740992",
+    "status=invalid",
+    "status=failed&status=succeeded",
+  ])("rejects invalid heartbeat run pagination: %s", async (query) => {
+    const res = await requestApp(await createApp(), (baseUrl) =>
+      request(baseUrl).get(`/api/companies/company-1/heartbeat-runs?${query}`),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(mockHeartbeatService.list).not.toHaveBeenCalled();
   });
 
   describe("heartbeat run ID validation", () => {

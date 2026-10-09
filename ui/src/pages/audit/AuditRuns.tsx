@@ -1,6 +1,7 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { HeartbeatRun, RoutineRunSummary } from "@paperclipai/shared";
+import { HEARTBEAT_RUN_STATUSES } from "@paperclipai/shared";
 import { Activity, CircleDotDashed } from "lucide-react";
 import { agentsApi } from "@/api/agents";
 import { heartbeatsApi } from "@/api/heartbeats";
@@ -21,6 +22,7 @@ import { relativeTime } from "@/lib/utils";
 
 const ALL = "__all";
 const RUN_LIMIT = 200;
+const RUN_PAGE_SIZE = 25;
 
 function runSummary(run: HeartbeatRun) {
   const result = run.resultJson as { summary?: unknown; result?: unknown } | null;
@@ -129,18 +131,29 @@ function RoutineScopedRuns({
 export function AuditRuns({ companyId, routineId }: { companyId: string; routineId?: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const agentId = searchParams.get("agentId") ?? ALL;
-  const status = searchParams.get("runStatus") ?? ALL;
+  const status = HEARTBEAT_RUN_STATUSES.find((candidate) => candidate === searchParams.get("runStatus")) ?? ALL;
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const agents = useQuery({
     queryKey: queryKeys.agents.list(companyId),
     queryFn: () => agentsApi.list(companyId),
     enabled: !routineId,
   });
-  const runs = useQuery({
-    queryKey: queryKeys.audit.runs(companyId, agentId === ALL ? null : agentId),
-    queryFn: () =>
-      heartbeatsApi.list(companyId, agentId === ALL ? undefined : agentId, RUN_LIMIT, {
+  const runs = useInfiniteQuery({
+    queryKey: [
+      ...queryKeys.audit.runs(companyId, agentId === ALL ? null : agentId),
+      "infinite",
+      RUN_PAGE_SIZE,
+      status,
+    ],
+    queryFn: ({ pageParam }) =>
+      heartbeatsApi.list(companyId, agentId === ALL ? undefined : agentId, RUN_PAGE_SIZE, {
         summary: true,
+        offset: pageParam,
+        status: status === ALL ? undefined : status,
       }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.length === RUN_PAGE_SIZE ? lastPageParam + RUN_PAGE_SIZE : undefined,
     refetchInterval: 15_000,
     enabled: !routineId,
   });
@@ -154,14 +167,29 @@ export function AuditRuns({ companyId, routineId }: { companyId: string; routine
     () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
     [agents.data],
   );
-  const statuses = useMemo(
-    () => Array.from(new Set((runs.data ?? []).map((run) => run.status))).sort(),
-    [runs.data],
-  );
+  const runRows = useMemo(() => {
+    const byId = new Map<string, HeartbeatRun>();
+    for (const run of runs.data?.pages.flat() ?? []) byId.set(run.id, run);
+    return Array.from(byId.values());
+  }, [runs.data]);
+  const statuses = HEARTBEAT_RUN_STATUSES;
   const visibleRuns = useMemo(
-    () => (runs.data ?? []).filter((run) => status === ALL || run.status === status),
-    [runs.data, status],
+    () => runRows.filter((run) => status === ALL || run.status === status),
+    [runRows, status],
   );
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !runs.hasNextPage || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !runs.isFetchingNextPage) void runs.fetchNextPage();
+      },
+      { rootMargin: "50%" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [runs.fetchNextPage, runs.hasNextPage, runs.isFetchingNextPage]);
 
   const updateFilter = (key: "agentId" | "runStatus", value: string) => {
     setSearchParams(
@@ -306,7 +334,17 @@ export function AuditRuns({ companyId, routineId }: { companyId: string; routine
         </ul>
       )}
 
-      <p className="text-xs text-muted-foreground">Showing the {RUN_LIMIT} most recent runs.</p>
+      <div ref={loadMoreRef} className="flex min-h-8 items-center justify-center text-xs text-muted-foreground">
+        {runs.isFetchingNextPage ? (
+          <span>Loading more runs…</span>
+        ) : runs.hasNextPage ? (
+          <Button variant="ghost" size="sm" onClick={() => void runs.fetchNextPage()}>
+            Load more runs
+          </Button>
+        ) : runRows.length > RUN_PAGE_SIZE ? (
+          <span>All {runRows.length} runs loaded.</span>
+        ) : null}
+      </div>
     </div>
   );
 }

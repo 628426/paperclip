@@ -3182,16 +3182,17 @@ function issueListOrderBy(
     searchOrder,
     sortField,
     sortDir,
+    canonicalLastActivityAt = issueCanonicalLastActivityAtExpr(companyId),
   }: {
     hasSearch: boolean;
     priorityOrder: SQL;
     searchOrder: SQL;
     sortField?: IssueFilters["sortField"];
     sortDir?: IssueFilters["sortDir"];
+    canonicalLastActivityAt?: SQL;
   },
 ) {
   if (sortField === "id") return [sortDir === "desc" ? desc(issues.id) : asc(issues.id)];
-  const canonicalLastActivityAt = issueCanonicalLastActivityAtExpr(companyId);
   if (sortField === "updated") {
     const activityOrder =
       sortDir === "asc"
@@ -8032,7 +8033,54 @@ export function issueService(db: Db) {
             SELECT m.id, ${taskSearchScore(taskSearch)} AS score FROM matched m
           ) task_search`, sql`task_search.id = ${issues.id}`)
         : issueSource;
-      const baseQuery = searchedSource
+      // Broad lists amortize activity aggregation across the company. Keep
+      // selective lists on their indexed per-issue probes; search estimates
+      // can otherwise turn a handful of matches into full history scans.
+      // Routes also pass false boolean defaults and includeRoutineExecutions,
+      // which does not narrow this query. Do not mistake those for selective
+      // filters and fall back to one activity lookup per company issue.
+      // Unknown/future filter fields conservatively retain the existing path.
+      const batchActivity = filters?.sortField !== "id" && !Object.entries(filters ?? {}).some(
+        ([key, value]) => value !== undefined && !(
+          value === false && ["excludeRoutineExecutions", "includePluginOperations"].includes(key)
+        ) && ![
+          "limit", "offset", "sortField", "sortDir", "includeRoutineExecutions",
+          "includeBlockedBy", "includeBlockedInboxAttention", "includeLiveDescendantSummary",
+        ].includes(key),
+      );
+      const commentActivity = db
+        .select({
+          issueId: issueComments.issueId,
+          latestAt: sql<Date | null>`MAX(${issueComments.createdAt})`.as("latest_comment_at"),
+        })
+        .from(issueComments)
+        .where(eq(issueComments.companyId, companyId))
+        .groupBy(issueComments.issueId)
+        .as("issue_list_comment_activity");
+      const logActivity = db
+        .select({
+          issueId: activityLog.entityId,
+          latestAt: sql<Date | null>`MAX(${activityLog.createdAt})`.as("latest_log_at"),
+        })
+        .from(activityLog)
+        .where(and(
+          eq(activityLog.companyId, companyId),
+          eq(activityLog.entityType, "issue"),
+          notInArray(activityLog.action, [...ISSUE_LOCAL_INBOX_ACTIVITY_ACTIONS]),
+        ))
+        .groupBy(activityLog.entityId)
+        .as("issue_list_log_activity");
+      const batchedActivityAt = sql<Date>`GREATEST(
+        ${issues.updatedAt},
+        COALESCE(${commentActivity.latestAt}, to_timestamp(0)),
+        COALESCE(${logActivity.latestAt}, to_timestamp(0))
+      )`;
+      const orderedSource = batchActivity
+        ? searchedSource
+            .leftJoin(commentActivity, eq(commentActivity.issueId, issues.id))
+            .leftJoin(logActivity, sql`${logActivity.issueId} = ${issues.id}::text`)
+        : searchedSource;
+      const baseQuery = orderedSource
         .where(and(...conditions))
         .orderBy(
           ...issueListOrderBy(companyId, {
@@ -8041,6 +8089,7 @@ export function issueService(db: Db) {
             searchOrder,
             sortField: filters?.sortField,
             sortDir: filters?.sortDir,
+            canonicalLastActivityAt: batchActivity ? batchedActivityAt : undefined,
           }),
         );
       const pageQuery =
@@ -8051,7 +8100,33 @@ export function issueService(db: Db) {
           : limit === undefined
             ? baseQuery
             : baseQuery.limit(limit);
-      const rows = (await pageQuery).map((row) => ({
+      // Sort only IDs and timestamps before reading the page's descriptions
+      // and other wide fields. This keeps preview encoding out of the full
+      // company sort. Reapply the exact order after the primary-key join.
+      const orderedIds = db
+        .select({ id: issues.id, activityAt: batchedActivityAt.as("activity_at") })
+        .from(issues)
+        .leftJoin(commentActivity, eq(commentActivity.issueId, issues.id))
+        .leftJoin(logActivity, sql`${logActivity.issueId} = ${issues.id}::text`)
+        .where(and(...conditions))
+        .orderBy(...issueListOrderBy(companyId, {
+          hasSearch: false, priorityOrder, searchOrder,
+          sortField: filters?.sortField, sortDir: filters?.sortDir,
+          canonicalLastActivityAt: batchedActivityAt,
+        }));
+      const activityPage = db.$with("issue_list_activity_page").as(
+        limit === undefined ? orderedIds.offset(offset) : orderedIds.limit(limit).offset(offset),
+      );
+      const resultQuery = batchActivity && limit !== undefined
+        ? db.with(activityPage).select(issueListSelect).from(issues)
+            .innerJoin(activityPage, eq(activityPage.id, issues.id))
+            .orderBy(...issueListOrderBy(companyId, {
+              hasSearch: false, priorityOrder, searchOrder,
+              sortField: filters?.sortField, sortDir: filters?.sortDir,
+              canonicalLastActivityAt: sql`${activityPage.activityAt}`,
+            }))
+        : pageQuery;
+      const rows = (await resultQuery).map((row) => ({
         ...row,
         description: decodeDatabaseTextPreview(
           row.description,

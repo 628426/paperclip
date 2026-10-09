@@ -15,6 +15,40 @@ Current implementation status:
 - Node.js 24.11+
 - pnpm 9+
 
+### Workspace cleanup performance
+
+The terminal-workspace reaper checks issue-tree terminal state, the cleanup
+cooldown, reopen fences, and active runs before inspecting Git. An undelivered,
+dirty, or uninspectable workspace is retried after ten minutes, or sooner if its
+workspace revision, lifecycle generation, or terminal-tree timestamp changes.
+This backoff is held in memory and is bounded to 2,000 workspaces. Explicit close
+readiness and destructive cleanup always inspect current Git state.
+
+Compare `workspace_git_scan` logs for
+`execution_workspaces.close_readiness_status` before and after a change. Include
+idle periods: background reaper scans can consume resources without UI requests.
+
+### Issue read performance
+
+Broad issue lists aggregate comment and activity timestamps once per company,
+then page issue IDs before projecting descriptions. Route boolean defaults and
+enrichment flags retain this path; selective filters and search retain per-issue
+activity probes. Ordering still excludes local inbox bookkeeping activity.
+
+Issue secret redaction reads only registry metadata from runs matching the
+company and either the current or legacy issue ID. Migration 0294 adds the
+legacy `paperclipIssue.id` expression index; the current `issueId` index already
+exists. Both lookup branches can use indexes without a company-wide cache fill.
+Decrypted values remain request-local, and each read sees newly committed
+registrations without depending on cached metadata.
+
+Package the migration SQL and its journal in performance overlay images too.
+The existing startup migration flow applies pending migrations before serving
+requests. Set `PAPERCLIP_MIGRATION_AUTO_APPLY=true` for explicit automatic
+application. Migration 0294 uses `IF NOT EXISTS`, and later starts skip an
+already recorded migration. Its first index build runs transactionally and can
+delay startup and block writes to `heartbeat_runs` until it completes.
+
 ## Dependency Lockfile Policy
 
 GitHub Actions owns `pnpm-lock.yaml`.
@@ -1445,6 +1479,17 @@ Environment overrides:
 Without `PAPERCLIP_DB_BACKUP_ALERT_FILE`, health checks look for
 `db-backup-to-s3.failure` in the backup directory, beside the backup directory,
 and in the default sibling `health/` directory.
+
+## Decision retention sweep
+
+The server runs one decision retention sweep at startup. Scheduler ticks then
+start a sweep at most once every five minutes. A tick skips this work while
+the previous sweep is still running. Decision expiry still runs on each tick.
+
+Set `PAPERCLIP_DECISION_RETENTION_SWEEP_INTERVAL_MS` to change the minimum
+interval between sweep starts. The default is `300000` milliseconds; the
+minimum is `10000` milliseconds. This controls archive retention and its
+notification delivery, not the expiry of pending decisions.
 
 DB backups are not full instance filesystem backups. For full local disaster
 recovery, also back up local storage files and the local encrypted secrets key if

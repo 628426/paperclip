@@ -155,6 +155,22 @@ export function activityService(db: Db) {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
+  // Resolve both link sources through their indexes before reading run data.
+  // UNION keeps a run linked through both paths in the result once.
+  function issueRunIds(companyId: string, issueId: string) {
+    return sql`${heartbeatRuns.id} IN (
+      SELECT ${heartbeatRuns.id} FROM ${heartbeatRuns}
+      WHERE ${heartbeatRuns.companyId} = ${companyId}
+        AND ${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}
+      UNION
+      SELECT ${activityLog.runId} FROM ${activityLog}
+      WHERE ${activityLog.companyId} = ${companyId}
+        AND ${activityLog.entityType} = 'issue'
+        AND ${activityLog.entityId} = ${issueId}
+        AND ${activityLog.runId} IS NOT NULL
+    )`;
+  }
+
   async function backfillMissingRunLivenessForIssue(companyId: string, issueId: string) {
     const runs = await db
       .select({
@@ -175,17 +191,7 @@ export function activityService(db: Db) {
           eq(heartbeatRuns.companyId, companyId),
           isNull(heartbeatRuns.livenessState),
           sql`${heartbeatRuns.status} not in ('queued', 'running')`,
-          or(
-            sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
-            sql`exists (
-              select 1
-              from ${activityLog}
-              where ${activityLog.companyId} = ${companyId}
-                and ${activityLog.entityType} = 'issue'
-                and ${activityLog.entityId} = ${issueId}
-                and ${activityLog.runId} = ${heartbeatRuns.id}
-            )`,
-          ),
+          issueRunIds(companyId, issueId),
         ),
       )
       .limit(20);
@@ -431,17 +437,7 @@ export function activityService(db: Db) {
         .where(
           and(
             eq(heartbeatRuns.companyId, companyId),
-            or(
-              sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
-              sql`exists (
-                select 1
-                from ${activityLog}
-                where ${activityLog.companyId} = ${companyId}
-                  and ${activityLog.entityType} = 'issue'
-                  and ${activityLog.entityId} = ${issueId}
-                  and ${activityLog.runId} = ${heartbeatRuns.id}
-              )`,
-            ),
+            issueRunIds(companyId, issueId),
           ),
         )
         .orderBy(desc(heartbeatRuns.createdAt));

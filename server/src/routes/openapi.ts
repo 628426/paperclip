@@ -20,6 +20,7 @@ import {
   slackToolCallSchema,
   slackSearchConfigSchema,
   // Agent
+  HEARTBEAT_RUN_STATUSES,
   AGENT_PALETTE_IDS,
   AGENT_AVATAR_SIZES,
   CHARACTER_STATES,
@@ -6789,8 +6790,17 @@ registry.registerPath({
   path: "/api/companies/{companyId}/heartbeat-runs",
   tags: ["runs"],
   summary: "List heartbeat runs for a company",
-  request: { params: z.object({ companyId: z.string() }) },
-  responses: { 200: r.ok(), 401: r.unauthorized },
+  request: {
+    params: z.object({ companyId: z.string() }),
+    query: z.object({
+      agentId: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(1000).default(200),
+      offset: z.coerce.number().int().nonnegative().default(0),
+      status: z.enum(HEARTBEAT_RUN_STATUSES).optional(),
+      summary: z.enum(["true", "1", "false", "0"]).optional(),
+    }),
+  },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized },
 });
 
 registry.registerPath({
