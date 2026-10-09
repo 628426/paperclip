@@ -1,3 +1,4 @@
+import { notifyDeliveryWork, DELIVERY_QUEUES } from "./delivery-work-notifications.js";
 import { composeConnectionInstructions } from "./connection-instructions.js";
 import { isInsufficientConnectionScope, INSUFFICIENT_CONNECTION_SCOPE_MESSAGE } from "./connection-permission-errors.js";
 import { boundedMcpToolName } from "./mcp-tool-names.js";
@@ -2615,15 +2616,18 @@ export function createToolGatewayService(
       );
     }
 
-    await db
-      .insert(toolActionDeliveries)
-      .values({
-        companyId: input.session.companyId,
-        actionRequestId: actionRequest.id,
-        issueId: input.session.issueId,
-        interactionId: interaction.id,
-      })
-      .onConflictDoNothing();
+    await db.transaction(async tx => {
+      await notifyDeliveryWork(tx, DELIVERY_QUEUES.toolAction);
+      await tx
+        .insert(toolActionDeliveries)
+        .values({
+          companyId: input.session.companyId,
+          actionRequestId: actionRequest.id,
+          issueId: input.session.issueId!,
+          interactionId: interaction.id,
+        })
+        .onConflictDoNothing();
+    });
 
     await writeToolCallEvent({
       invocationId: input.invocation.id,

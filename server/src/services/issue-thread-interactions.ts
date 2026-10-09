@@ -1,4 +1,5 @@
 import { normalizeEscapedLineBreaks } from "@paperclipai/shared/validators/text";
+import { notifyDeliveryWork, DELIVERY_QUEUES } from "./delivery-work-notifications.js";
 import { activeIssueInteractionCondition, historicalQuestionCondition } from "./issue-question-context.js";
 import {
   currentContinuationOrigins,
@@ -2829,6 +2830,7 @@ export function issueThreadInteractionService(
         .returning();
         if (!row) throw interactionAlreadyResolvedError();
         if (status === "accepted" || status === "rejected") {
+          await notifyDeliveryWork(tx, DELIVERY_QUEUES.connection);
           await tx.insert(connectionIntentDeliveries).values({ interactionId, companyId: issue.companyId }).onConflictDoNothing();
         }
         return row;
@@ -5026,6 +5028,7 @@ export function issueThreadInteractionService(
         // This answer updates conversation history only. It must not resume
         // the completed source run or enqueue new work for the closed task.
         if (!historicalAnswer) {
+          await notifyDeliveryWork(tx, DELIVERY_QUEUES.question);
           await tx
             .insert(issueQuestionResponseDeliveries)
             .values(questionResponseDeliveryValues(answered));
