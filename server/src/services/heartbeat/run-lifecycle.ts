@@ -543,9 +543,10 @@ function buildRunEventRuntimeProgress(input: {
 export async function persistHeartbeatRunProcessMetadata(
   db: Db,
   runId: string,
-  meta: { pid: number; processGroupId: number | null; startedAt: string },
+  meta: { pid: number; processGroupId: number | null; startedAt: string; targetKind?: "local" | "remote" },
 ) {
-  const observedStartedAt = await readProcessStartedAt(meta.pid).catch(
+  // A sandbox PID belongs to a different host and may collide with a local PID.
+  const observedStartedAt = meta.targetKind === "remote" ? null : await readProcessStartedAt(meta.pid).catch(
     () => null,
   );
   const startedAt = new Date(observedStartedAt ?? meta.startedAt);
@@ -2097,7 +2098,7 @@ export function createHeartbeatLifecycle(db: Db, dependencies: HeartbeatLifecycl
 
   async function persistRunProcessMetadata(
     runId: string,
-    meta: { pid: number; processGroupId: number | null; startedAt: string },
+    meta: { pid: number; processGroupId: number | null; startedAt: string; targetKind?: "local" | "remote" },
   ) {
     return persistHeartbeatRunProcessMetadata(db, runId, meta);
   }

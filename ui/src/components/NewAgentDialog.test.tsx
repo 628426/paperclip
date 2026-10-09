@@ -274,15 +274,16 @@ it("waits for company approval before issuing a Dot capability", async () => {
   expect(dotApi.pair).not.toHaveBeenCalled();
 });
 
-it("keeps cloud Dot gated until managed execution is qualified", async () => {
+it("allows the scoped Dot invitation on cloud when its prerequisites are enabled", async () => {
   await act(async () => {
     cache.setQueryData(queryKeys.instance.experimentalSettings, { enableOpenAiDot: true, enablePublicMcp: true });
     cache.setQueryData(queryKeys.health, { status: "ok", cloud: { managed: true } });
   });
   await click("Invite an external agent");
-  expect([...document.querySelectorAll("button")].find(b => b.textContent?.startsWith("Dot"))?.disabled).toBe(true);
-  expect(document.body.textContent).toContain("Dot cloud execution is not available yet");
-  expect(dotApi.create).not.toHaveBeenCalled();
+  const dot = [...document.querySelectorAll("button")].find(b => b.textContent?.startsWith("Dot"))!;
+  expect(dot.disabled).toBe(false);
+  await act(async () => dot.click());
+  expect(dotApi.create).toHaveBeenCalledWith("company-1");
 });
 
 async function openDotSetup() {

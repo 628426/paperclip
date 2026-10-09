@@ -4546,9 +4546,6 @@ export function heartbeatService(
       const executionForcedToKubernetes =
         isExecutionForcedToKubernetes(executionPolicy);
       let selectedEnvironmentId = environmentResolution.environmentId;
-      if (isDotRun && (executionForcedToKubernetes || managedSandboxOnly || selectedEnvironmentId && selectedEnvironmentId !== localEnvironment.id)) {
-        throw new ConfigurationIncompleteFailure("Dot currently requires a self-hosted local Runner controller; this environment policy is not supported.", { provider: "openai_dot", reason: "controller_environment_unsupported" });
-      }
       if (executionForcedToKubernetes) {
         let kubernetesEnvironment =
           await environmentsSvc.findKubernetesEnvironment(agent.companyId);
@@ -8169,7 +8166,7 @@ export function heartbeatService(
                     }).syncIssueSafely,
                     onSpawn: async (meta) => {
                       markDispatchStarted();
-                      await persistRunProcessMetadata(run.id, meta);
+                      await persistRunProcessMetadata(run.id, { ...meta, targetKind: executionTarget?.kind ?? "local" });
                     },
                   });
                 },

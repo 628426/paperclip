@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { accessApi } from "@/api/access";
 import { dotInvitationsApi, type DotInvitation, type DotPairing } from "@/api/dotInvitations";
 import { instanceSettingsApi } from "@/api/instanceSettings";
-import { useCloudInstance } from "@/hooks/useCloudInstance";
 import { useCompany } from "@/context/CompanyContext";
 import { queryKeys } from "@/lib/queryKeys";
 import { buildAgentOnboardingPrompt } from "@/lib/agent-onboarding-prompt";
@@ -19,7 +18,6 @@ export function ExternalAgentInviteDialog({ companyId, onClose, onBack }: {
   onBack: () => void;
 }) {
   const cache = useQueryClient();
-  const cloud = Boolean(useCloudInstance());
   const { selectedCompany } = useCompany();
   const [preset, setPreset] = useState<ExternalAgentPreset | null>(null);
   const [invitation, setInvitation] = useState<DotInvitation | null>(null);
@@ -30,7 +28,6 @@ export function ExternalAgentInviteDialog({ companyId, onClose, onBack }: {
   const experimental = useQuery({ queryKey: queryKeys.instance.experimentalSettings, queryFn: instanceSettingsApi.getExperimental });
   const dotDisabledReason = experimental.isPending ? "Loading available agents…"
     : experimental.error ? "Unable to load experimental settings. Try again after refreshing."
-    : cloud ? "Dot cloud execution is not available yet. Hermes and Other use the existing external agent invitation."
     : !experimental.data?.enableOpenAiDot || !experimental.data.enablePublicMcp
       ? "Enable OpenAI Dot and Assistant connections (MCP) in experimental settings." : undefined;
   const key = ["dot-binding", companyId, invitation?.agent.id];

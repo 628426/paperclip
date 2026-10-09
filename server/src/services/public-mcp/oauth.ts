@@ -383,7 +383,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
           state: p.state ?? null, challenge: p.code_challenge, expiresAt: new Date(now.getTime() + 10 * minute),
         });
       });
-      return authorizationOrigin + "/mcp-connect/" + id;
+      return authorizationOrigin + (agentConnection ? "/dot-connect/" : "/mcp-connect/") + id;
     },
     async describeRequest(id: string, actor: Request["actor"], setupUrl: string | null): Promise<McpConnectionRequest> {
       await assertEnabled();

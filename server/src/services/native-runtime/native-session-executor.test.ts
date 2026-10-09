@@ -828,7 +828,7 @@ describe("remote runner process supervision", () => {
     expect(handle.child.exitCode).toBeNull();
   });
 
-  it("terminates a detached runner when its process identity cannot be adopted", async () => {
+  it.each(["missing marker", "missing fingerprint"])("terminates a detached runner with %s before admitting managed work", async kind => {
     vi.useFakeTimers();
     try {
       let launchNonce = "";
@@ -847,10 +847,10 @@ describe("remote runner process supervision", () => {
           }
           if (label === "paperclip-runner-process-identity") {
             return {
-              exitCode: 3,
+              exitCode: kind === "missing fingerprint" ? 0 : 3,
               signal: null,
               timedOut: false,
-              stdout: "",
+              stdout: kind === "missing fingerprint" ? `${launchNonce}\n4321\n2026-09-06T00:00:00.000Z\nrunner-remote\n` : "",
               stderr: "",
             };
           }
@@ -881,6 +881,7 @@ describe("remote runner process supervision", () => {
         stateDirectory: "/runtime",
         diagnosticsDirectory: "/runtime/diagnostics",
         runnerInstanceId: "runner-remote",
+        requireProcessStartFingerprint: true,
       });
 
       const handle = launcher({
@@ -2519,6 +2520,14 @@ describe("remote runner build metadata", () => {
     expect(() =>
       assertRemoteRunnerBuildMetadata(current, "listen_ws"),
     ).not.toThrow();
+  });
+
+  it("requires an explicit Dot bridge capability only for remote Dot execution", () => {
+    expect(() => assertRemoteRunnerBuildMetadata(current, "listen_ws", "openai_dot_mcp"))
+      .toThrow("runner_remote_dot_capability_missing");
+    expect(() => assertRemoteRunnerBuildMetadata({ ...current, externalProviderCapabilities: ["openai_dot_mcp"] },
+      "listen_ws", "openai_dot_mcp")).not.toThrow();
+    expect(() => assertRemoteRunnerBuildMetadata(current, "listen_ws")).not.toThrow();
   });
 
   it("fails before dispatch when a preinstalled runner uses the stale contract", () => {
