@@ -41,11 +41,16 @@ export function dashboardService(db: Db) {
         .where(eq(agents.companyId, companyId))
         .groupBy(agents.status);
 
-      const taskRows = await db
-        .select({ status: issues.status, count: sql<number>`count(*)` })
-        .from(issues)
-        .where(and(eq(issues.companyId, companyId), executionIssueCondition()))
-        .groupBy(issues.status);
+      const taskRows = await db.transaction(async (tx) => {
+        // JIT compilation dominates this small aggregate's execution time.
+        // Keep the setting local to this read and its reserved connection.
+        await tx.execute(sql`SET LOCAL jit = off`);
+        return tx
+          .select({ status: issues.status, count: sql<number>`count(*)` })
+          .from(issues)
+          .where(and(eq(issues.companyId, companyId), executionIssueCondition()))
+          .groupBy(issues.status);
+      }, { accessMode: "read only" });
 
       const pendingApprovals = await db
         .select({ count: sql<number>`count(*)` })
