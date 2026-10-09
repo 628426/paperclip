@@ -1,3 +1,4 @@
+import { isAgentAwaitingSetup } from "../../modules/agent-lifecycle/index.js";
 import { normalizeAgentNameKey } from "./retries.js";
 import {
   type WakeupOptions,
@@ -941,6 +942,8 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       );
       return null;
     }
+    // Keep accepted work in the durable queue until setup completes.
+    if (isAgentAwaitingSetup(agent)) return null;
     const invokability = companyAgents
       ? evaluateAgentInvokability(toAgentOrgRow(agent), companyAgents)
       : await getAgentInvokability(agent);
@@ -1862,6 +1865,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     // Cancelled after the start lock is released: cancelRunInternal promotes the
     // agent's next queued run, which takes this same lock.
     const rejectedClaims: Array<{ run: typeof heartbeatRuns.$inferSelect; err: HttpError }> = [];
+    let cancellationReason: string | undefined;
 
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
@@ -1869,10 +1873,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       const invokability = await getAgentInvokability(agent);
       if (!invokability.invokable) {
         if (shouldCancelRunsForNonInvokableAgent(invokability)) {
-          await cancelActiveForAgentInternal(
-            agentId,
-            `Cancelled because the agent is not invokable: ${invokability.reason}`,
-          );
+          cancellationReason = `Cancelled because the agent is not invokable: ${invokability.reason}`;
         }
         return [];
       }
@@ -2011,7 +2012,10 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
         });
       }
       return claimedRuns;
-    }).finally(() => cancelRejectedQueuedRuns(rejectedClaims));
+    }).finally(async () => {
+      if (cancellationReason) await cancelActiveForAgentInternal(agentId, cancellationReason);
+      await cancelRejectedQueuedRuns(rejectedClaims);
+    });
   }
 
   // Public wakeup entry point. Callers dispatch it fire-and-forget, so register
@@ -2501,7 +2505,8 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       });
     }
 
-    const invokability = await getAgentInvokability(agent);
+    // Setup delays execution, but must not discard work accepted by a caller.
+    const invokability = await getAgentInvokability(isAgentAwaitingSetup(agent) ? { ...agent, status: "idle" } : agent);
     if (!invokability.invokable) {
       if (opts.requestedByActorType !== "user" || executionWaitRequestId) {
         await writeSkippedRequest("agent.not_invokable", {

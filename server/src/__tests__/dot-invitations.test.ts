@@ -1,3 +1,8 @@
+import { logActivity } from "../services/activity-log.js";
+vi.mock("../services/activity-log.js", async importOriginal => {
+  const actual = await importOriginal<typeof import("../services/activity-log.js")>();
+  return { ...actual, logActivity: vi.fn(actual.logActivity) };
+});
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -38,7 +43,8 @@ it("atomically resumes one pending invite across retries and never persists a pa
   const service = dotInvitationService(db);
   const [a, b] = await Promise.all([service.create(f.companyId, f.userId), service.create(f.companyId, f.userId)]);
   expect(a.agent.id).toBe(b.agent.id);
-  expect(a.agent.status).toBe("idle");
+  expect(a.agent.status).toBe("paused");
+  expect((await db.select().from(agents).where(eq(agents.id, a.agent.id)))[0]!.lifecycleState).toBe("preparing");
   expect(await service.resume(f.companyId, f.userId)).toMatchObject({ agent: { id: a.agent.id } });
   expect(await service.resume(f.companyId, randomUUID())).toBeNull();
   expect(await db.select().from(agents).where(eq(agents.companyId, f.companyId))).toHaveLength(1);
@@ -46,6 +52,26 @@ it("atomically resumes one pending invite across retries and never persists a pa
   const logs = await db.select().from(activityLog).where(eq(activityLog.companyId, f.companyId));
   expect(JSON.stringify(logs)).not.toContain(code.pairingCode);
   expect(JSON.stringify(await service.resume(f.companyId, f.userId))).not.toContain(code.pairingCode);
+});
+it("reuses a committed hire when invitation completion must retry", async () => {
+  const f = await fixture(true);
+  const actual = await vi.importActual<typeof import("../services/activity-log.js")>("../services/activity-log.js");
+  vi.mocked(logActivity).mockImplementation(async (...args) => {
+    if (args[1].action === "agent.hire_created") {
+      vi.mocked(logActivity).mockImplementation(actual.logActivity);
+      throw new Error("Invitation audit unavailable");
+    }
+    return actual.logActivity(...args);
+  });
+  const service = dotInvitationService(db);
+  await expect(service.create(f.companyId, f.userId)).rejects.toThrow("Invitation audit unavailable");
+  const before = await db.select().from(agents).where(eq(agents.companyId, f.companyId));
+  expect(before).toHaveLength(1);
+  expect(await service.resume(f.companyId, f.userId)).toBeNull();
+  const retried = await service.create(f.companyId, f.userId);
+  expect(retried.agent.id).toBe(before[0]!.id);
+  expect(await db.select().from(approvals).where(eq(approvals.companyId, f.companyId))).toHaveLength(1);
+  expect(await db.select().from(agents).where(eq(agents.companyId, f.companyId))).toHaveLength(1);
 });
 it("honors hiring approval before issuing a pairing capability", async () => {
   const f = await fixture(true);
@@ -91,7 +117,7 @@ it("keeps invite routes company-scoped and denies viewers and agent actors", asy
   expect(result.status, JSON.stringify(result.body)).toBe(200);
   expect(result.body.agent.id).toBeTruthy();
   expect((await request(app).get(path)).body.agent.id).toBe(result.body.agent.id);
-  expect(await db.select().from(agents).where(and(eq(agents.companyId, f.companyId), eq(agents.status, "idle")))).toHaveLength(1);
+  expect(await db.select().from(agents).where(and(eq(agents.companyId, f.companyId), eq(agents.lifecycleState, "preparing")))).toHaveLength(1);
 });
 
 it("does not trust editable agent metadata as an invitation ownership receipt", async () => {
