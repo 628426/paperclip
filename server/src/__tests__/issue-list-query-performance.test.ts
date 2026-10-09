@@ -13,10 +13,22 @@ const routeDefaults = {
 
 async function listSql(filters: Filters) {
   let captured: string | undefined;
+  const statements: Array<{ query: string; transactional: boolean }> = [];
   const stop = new Error("Query captured");
+  const capture = (query: string, transactional: boolean) => {
+    statements.push({ query, transactional });
+    if (/^set /i.test(query)) return Promise.resolve([]);
+    captured = query;
+    throw stop;
+  };
+  const transactionClient = {
+    options: { parsers: {}, serializers: {} },
+    unsafe(query: string) { return capture(query, true); },
+  };
   const client = {
     options: { parsers: {}, serializers: {} },
-    unsafe(query: string) { captured = query; throw stop; },
+    unsafe(query: string) { return capture(query, false); },
+    async begin<T>(body: (connection: typeof transactionClient) => Promise<T>) { return body(transactionClient); },
   };
   const db = drizzle(client as unknown as ReturnType<typeof postgres>) as unknown as Db;
   try {
@@ -25,6 +37,11 @@ async function listSql(filters: Filters) {
     if (!captured) throw error;
   }
   expect(captured).toBeDefined();
+  expect(statements).toEqual([
+    { query: "set transaction read only", transactional: true },
+    { query: "SET LOCAL jit = off", transactional: true },
+    { query: captured, transactional: true },
+  ]);
   return captured!;
 }
 
