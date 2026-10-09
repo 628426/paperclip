@@ -1823,6 +1823,7 @@ export function heartbeatService(
   });
 
   const heartbeatQueue = createHeartbeatQueue(db, {
+    applyWakeQueuePostCommitEffects,
     setRunStatus,
     setWakeupStatus,
     appendRunEvent,
