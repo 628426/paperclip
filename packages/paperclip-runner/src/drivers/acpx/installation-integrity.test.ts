@@ -295,7 +295,7 @@ describe("ACPX installation integrity", () => {
     await mkdir(nestedRuntimeDirectory, { recursive: true });
     await writeFile(
       join(nestedRuntimeDirectory, "package.json"),
-      JSON.stringify({ version: "0.84.2" }),
+      JSON.stringify({ version: "1.0.0" }),
     );
 
     await expect(
@@ -1407,7 +1407,7 @@ describe("ACPX installation integrity", () => {
         fixture.runtimePackageJsonPath,
         JSON.stringify({
           name: packageName,
-          version: "0.84.2",
+          version: "1.0.0",
           main: "index.js",
         }),
       ),
@@ -2024,9 +2024,15 @@ async function expectOutput(
   });
   const [exitCode] = await once(child, "exit");
   expect(exitCode, stderr).toBe(0);
-  const normalized = process.platform === "darwin"
-    ? stdout.replace(/\/private\/var\/[^"\s]*\/paperclip-acpx-[^/]+\/0/g, "/proc/self/fd/4")
-    : stdout;
+  let normalized = stdout;
+  if (process.platform === "darwin") {
+    const snapshotPrefix = join(await realpath(tmpdir()), "paperclip-acpx-")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    normalized = stdout.replace(
+      new RegExp(`${snapshotPrefix}[^/"\\s]+/0(?=[/"])`, "g"),
+      "/proc/self/fd/4",
+    );
+  }
   expect(normalized).toBe(expected);
 }
 
@@ -2201,7 +2207,7 @@ async function installationFixture() {
       serverPackageJsonPath,
       JSON.stringify({ version: "0.0.33", bin: "bin/server.js" }),
     ),
-    writeFile(runtimePackageJsonPath, JSON.stringify({ version: "0.84.2" })),
+    writeFile(runtimePackageJsonPath, JSON.stringify({ version: "1.0.0" })),
     writeFile(commandPath, command),
   ]);
   await chmod(commandPath, 0o755);

@@ -43,6 +43,9 @@ const DEPENDENCY_ANCESTOR_FD_START = 5;
 const MAX_DEPENDENCY_ANCESTORS = 64;
 const PROVIDER_WATCHDOG_HANDSHAKE_TIMEOUT_MS = 2_000;
 const PROVIDER_GUARDIAN_HANDSHAKE_TIMEOUT_MS = 5_000;
+// Cover bounded runtime close and TERM/KILL verification without allowing a
+// surviving provider to hold the entire cleanup result indefinitely.
+const NATIVE_SNAPSHOT_EXIT_TIMEOUT_MS = 10_000;
 const VERIFIED_PROVIDER_RUNTIME_TARGET_ENV =
   "PAPERCLIP_ACPX_VERIFIED_PROVIDER_RUNTIME_TARGET";
 
@@ -473,7 +476,7 @@ export interface VerifiedAcpxInstallation {
   readonly commandDigest: string;
   readonly agentServerPackageJsonPath: string | null;
   readonly agentRuntimePackageJsonPath: string | null;
-  openCommand(): Promise<VerifiedAcpxCommandLease>;
+  openCommand(options?: { signal?: AbortSignal }): Promise<VerifiedAcpxCommandLease>;
 }
 
 /**
@@ -492,8 +495,8 @@ export async function verifyNativeAcpxInstallation(
     commandDigest: `sha256:${declaration.expectedClosureSha256}`,
     agentServerPackageJsonPath: declaration.manifestPath,
     agentRuntimePackageJsonPath: null,
-    async openCommand(): Promise<VerifiedAcpxCommandLease> {
-      const native = await createNativeAcpxDistributionSnapshot(declaration, entries);
+    async openCommand(options?: { signal?: AbortSignal }): Promise<VerifiedAcpxCommandLease> {
+      const native = await createNativeAcpxDistributionSnapshot(declaration, entries, options?.signal);
       const lease = commandLease(
         native.snapshot.roots[0]!, NATIVE_ACPX_BOOTSTRAP_NAME, "commonjs",
         native.bootstrap, native.commandDirectory, [], 0, "commonjs", [],
@@ -1442,6 +1445,17 @@ function commandLease(
 ): VerifiedAcpxCommandLease {
   let consumed = false;
   let directoriesReleased = false;
+  let spawnedChild: ChildProcess | null = null;
+  let childExit: Promise<void> | null = null;
+  let snapshotCleanup: Promise<void> | null = null;
+  const cleanSnapshot = (): Promise<void> => {
+    if (snapshotCleanup === null) {
+      snapshotCleanup = Promise.resolve().then(() => privateSnapshot?.close());
+      // Exit-triggered cleanup remains observable at the authoritative close.
+      void snapshotCleanup.catch(() => undefined);
+    }
+    return snapshotCleanup;
+  };
   const releaseDirectories = async (): Promise<void> => {
     if (directoriesReleased) return;
     directoriesReleased = true;
@@ -1457,11 +1471,35 @@ function commandLease(
     void releaseDirectories().catch(() => undefined);
   };
   const close = async (): Promise<void> => {
-    if (consumed) return;
+    if (consumed && privateSnapshot === null) return;
     consumed = true;
     verifiedBytes.fill(0);
     await releaseDirectories();
-    await privateSnapshot?.close();
+    // A spawned provider may still read the snapshot. Runtime shutdown runs in
+    // parallel and retires that child; do not remove its bytes or report command
+    // retirement until observed exit and complete snapshot deletion.
+    if (childExit !== null) {
+      let exitTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          childExit,
+          new Promise<never>((_, reject) => {
+            exitTimer = setTimeout(() => reject(new Error(
+              "ACPX provider survived native snapshot retirement deadline",
+            )), NATIVE_SNAPSHOT_EXIT_TIMEOUT_MS);
+          }),
+        ]);
+      } finally {
+        if (exitTimer !== undefined) clearTimeout(exitTimer);
+      }
+    }
+    const cleanup = cleanSnapshot();
+    try {
+      await cleanup;
+    } catch (error) {
+      if (snapshotCleanup === cleanup) snapshotCleanup = null;
+      throw error;
+    }
   };
   return {
     spawn(
@@ -1606,6 +1644,21 @@ function commandLease(
                 ],
           },
         );
+        spawnedChild = child;
+        if (privateSnapshot !== null) {
+          childExit = new Promise<void>((resolve) => {
+            child.once("exit", () => resolve());
+            child.once("error", () => {
+              // A failed spawn has no process. Errors from an admitted child
+              // do not prove it exited and must retain its snapshot.
+              if (child.pid === undefined) resolve();
+            });
+          });
+          child.once("exit", () => { void cleanSnapshot(); });
+          child.once("error", () => {
+            if (child.pid === undefined) void cleanSnapshot();
+          });
+        }
         if (guarded) {
           const guardianOwnerPipe = child.stdio[
             providerOwnershipFd - 1
@@ -1635,12 +1688,11 @@ function commandLease(
       } catch (error) {
         verifiedBytes.fill(0);
         releaseDirectoriesBestEffort();
-        void privateSnapshot?.close();
+        spawnedChild?.kill();
+        void Promise.resolve(childExit).then(cleanSnapshot).catch(() => undefined);
         throw error;
       }
       releaseDirectoriesBestEffort();
-      child.once("exit", () => { void privateSnapshot?.close(); });
-      child.once("error", () => { void privateSnapshot?.close(); });
       const sourceInput = child.stdio[COMMAND_SOURCE_FD] as Writable | null;
       if (sourceInput === null) {
         verifiedBytes.fill(0);
@@ -2170,4 +2222,11 @@ export async function probeAcpxClaudeInstallation(model: string): Promise<void> 
 
 export async function probeAcpxGrokInstallation(model: string): Promise<void> {
   await verifyQualifiedAcpxInstallation(resolveQualifiedAcpxProfile("grok", model));
+}
+
+/** Verify the pinned Pi closure and snapshot lease without launching a provider. */
+export async function probeAcpxPiInstallation(model: string): Promise<void> {
+  const installation = await verifyQualifiedAcpxInstallation(resolveQualifiedAcpxProfile("pi", model));
+  const lease = await installation.openCommand();
+  await lease.close();
 }

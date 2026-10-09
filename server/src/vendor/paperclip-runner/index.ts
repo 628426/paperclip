@@ -28,6 +28,7 @@ export type {
   ControlPlanePort,
   HarnessRuntimeRequestKind,
   HarnessRuntimeRequestResolution,
+  LinuxProcessStartOptions,
   NativeAcpxAgent,
   NativeAcpxPermissionMode,
   NativeCodexApprovalPolicy,
@@ -80,6 +81,7 @@ export const DurablePrpControlPlane = runner.DurablePrpControlPlane;
 export const runnerCodexDynamicToolsFit = runner.runnerCodexDynamicToolsFit;
 export const inspectWarmRunTransition = runner.inspectWarmRunTransition;
 export const readRunnerdArtifactBinding = runner.readRunnerdArtifactBinding;
+export const readLinuxProcessStartedAt = runner.readLinuxProcessStartedAt;
 export const NativeSessionCleanupQuarantinedError =
   runner.NativeSessionCleanupQuarantinedError;
 export const NativeSessionProtocolIntegrityError =
@@ -145,10 +147,13 @@ export const nativeRestartInterruptedTurnId = runner.nativeRestartInterruptedTur
 export const completeTerminatedRemoteNativeSessionCleanup = runner.completeTerminatedRemoteNativeSessionCleanup;
 export const completeTerminatedLocalNativeSessionCleanup = runner.completeTerminatedLocalNativeSessionCleanup;
 
-export const externalOperationDigest = runner.externalOperationDigest;
+export const probeAcpxClaudeInstallation = runner.probeAcpxClaudeInstallation;
+export const probeAcpxGrokInstallation = runner.probeAcpxGrokInstallation;
+export const probeAcpxPiInstallation = runner.probeAcpxPiInstallation;
 export const bundledRemoteProviderPackManifestPath = runner.bundledRemoteProviderPackManifestPath;
 export const bundledRemoteRunnerBinary = runner.bundledRemoteRunnerBinary;
 
+export const externalOperationDigest = runner.externalOperationDigest;
 export const CONFIGURED_ENVIRONMENT_KEYS = runner.CONFIGURED_ENVIRONMENT_KEYS;
 export const GENERATED_RUNTIME_ENVIRONMENT_KEYS = runner.GENERATED_RUNTIME_ENVIRONMENT_KEYS;
 export const configuredEnvironmentProjection = runner.configuredEnvironmentProjection;
