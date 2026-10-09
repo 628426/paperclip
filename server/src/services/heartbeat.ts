@@ -8427,7 +8427,7 @@ function publishHeartbeatRunRuntimeProgress(status: {
 function recordHeartbeatRunRuntimeProgress(
   run: Pick<
     typeof heartbeatRuns.$inferSelect,
-    "id" | "companyId" | "agentId" | "status" | "contextSnapshot"
+    "id" | "companyId" | "agentId" | "status"
   >,
   update: RuntimeStatusUpdate,
   issueId: string | null,
@@ -10708,6 +10708,19 @@ export function heartbeatService(
       .then((rows) => rows[0] ?? null);
   }
 
+  async function getRunIdentityAndStatus(runId: string) {
+    const [run] = await db
+      .select({
+        id: heartbeatRuns.id,
+        companyId: heartbeatRuns.companyId,
+        agentId: heartbeatRuns.agentId,
+        status: heartbeatRuns.status,
+      })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId));
+    return run ?? null;
+  }
+
   async function recordCurrentHeartbeatRunRuntimeProgress(
     run: Pick<
       typeof heartbeatRuns.$inferSelect,
@@ -10721,7 +10734,9 @@ export function heartbeatService(
       return null;
     }
 
-    const currentRun = await getRun(run.id);
+    // Progress admission uses current identity and status, never the stored
+    // prompt, result or log payloads. Avoid reading them on every update.
+    const currentRun = await getRunIdentityAndStatus(run.id);
     if (!currentRun || !isHeartbeatRunRuntimeStatusActive(currentRun.status)) {
       clearHeartbeatRunRuntimeStatus(run.id);
       return null;
@@ -24876,7 +24891,7 @@ export function heartbeatService(
                     } : {}),
                     onCancellationReady: async () => {
                       await registerAdapterExecutionControl(run.id, executionControl);
-                      const current = await getRun(run.id);
+                      const current = await getRunIdentityAndStatus(run.id);
                       if (!current || isHeartbeatRunTerminalStatus(current.status)) {
                         executionControl.controller.abort(new Error("Run stopped before provider startup"));
                       }

@@ -47,6 +47,7 @@ import {
   documentAnnotationComments,
   documentAnnotationThreads,
   createDb,
+  EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   closeRegisteredClients,
   documentRevisions,
   documents,
@@ -479,7 +480,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       createdAt: now,
       updatedAt: now,
     });
-  }, 20_000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     vi.clearAllMocks();

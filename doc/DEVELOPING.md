@@ -60,6 +60,10 @@ repeatedly decompressing the same stored JSON for each summary field. Summary
 and legacy-encoding reads do not inspect result JSON. Projection limits, null
 handling, filters, ordering and pagination remain unchanged.
 
+Runtime progress and provider-startup checks read current run identity and status
+without stored prompt, result or log payloads. Missing and terminal runs still
+suppress updates or stop startup; each check reads fresh database state.
+
 ## Dependency Lockfile Policy
 
 GitHub Actions owns `pnpm-lock.yaml`.
